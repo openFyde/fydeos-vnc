@@ -1,0 +1,200 @@
+# Copyright 2026 The FydeOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//common-mk/mojom_bindings_generator.gni")
+import("//common-mk/pkg_config.gni")
+
+group("all") {
+  deps = [ ":fydeos-vncd" ]
+  if (use.test) {
+    deps += [ ":run_fydeos_vnc_tests" ]
+  }
+}
+
+pkg_config("target_defaults") {
+  pkg_deps = [
+    "libbrillo",
+    "libchrome",
+  ]
+}
+
+pkg_config("capture_pkg_deps") {
+  pkg_deps = [
+    "egl",
+    "gbm",
+    "glesv2",
+    "libdrm",
+  ]
+}
+
+pkg_config("input_pkg_deps") {
+  pkg_deps = [ "xkbcommon" ]
+}
+
+pkg_config("encoder_pkg_deps") {
+  pkg_deps = [
+    "libvncserver",
+    "zlib",
+  ]
+}
+
+pkg_config("net_pkg_deps") {
+  pkg_deps = [
+    "libcrypto",
+    "libcrypt",
+    "libssl",
+  ]
+}
+
+pkg_config("mojo_pkg_deps") {
+  pkg_deps = [
+    "libchrome",
+    "libmojo",
+  ]
+}
+
+generate_mojom_bindings("fydeos-vnc-mojom") {
+  sources = [ "mojo/fydeos_vnc.mojom" ]
+}
+
+static_library("libfydeos-vnc-capture") {
+  sources = [
+    "capture/crtc.cc",
+    "capture/egl_capture.cc",
+    "capture/framesink_capture_source.cc",
+    "capture/kms_capture_source.cc",
+  ]
+  configs += [
+    ":target_defaults",
+    ":capture_pkg_deps",
+    ":mojo_pkg_deps",
+  ]
+  deps = [ ":fydeos-vnc-mojom" ]
+}
+
+static_library("libfydeos-vnc-input") {
+  sources = [
+    "input/ash_input_sink.cc",
+    "input/keysym_map.cc",
+    "input/uinput_sink.cc",
+  ]
+  configs += [
+    ":target_defaults",
+    ":input_pkg_deps",
+    ":mojo_pkg_deps",
+  ]
+  deps = [ ":fydeos-vnc-mojom" ]
+}
+
+static_library("libfydeos-vnc-encoder") {
+  sources = [
+    "encoder/extended_clipboard.cc",
+    "encoder/vnc_server.cc",
+    "encoder/vnc_utils.cc",
+  ]
+  configs += [
+    ":target_defaults",
+    ":encoder_pkg_deps",
+  ]
+  deps = [ ":libfydeos-vnc-net" ]
+}
+
+static_library("libfydeos-vnc-net") {
+  sources = [
+    "net/bind_selector.cc",
+    "net/mdns.cc",
+    "net/password.cc",
+    "net/port_access.cc",
+    "net/tcp_listener.cc",
+    "net/tls.cc",
+    "net/vencrypt_session.cc",
+  ]
+  configs += [
+    ":target_defaults",
+    ":net_pkg_deps",
+  ]
+}
+
+static_library("libfydeos-vnc-mojo") {
+  sources = [ "mojo/chrome_client.cc" ]
+  configs += [
+    ":target_defaults",
+    ":mojo_pkg_deps",
+  ]
+  deps = [ ":fydeos-vnc-mojom" ]
+}
+
+static_library("libfydeos-vnc-daemon") {
+  sources = [
+    "daemon/capture_source_selector.cc",
+    "daemon/dbus_service.cc",
+    "daemon/pipeline.cc",
+  ]
+  configs += [
+    ":target_defaults",
+    ":capture_pkg_deps",
+    ":encoder_pkg_deps",
+    ":input_pkg_deps",
+    ":mojo_pkg_deps",
+    ":net_pkg_deps",
+  ]
+  deps = [
+    ":libfydeos-vnc-capture",
+    ":libfydeos-vnc-encoder",
+    ":libfydeos-vnc-input",
+    ":libfydeos-vnc-mojo",
+    ":libfydeos-vnc-net",
+  ]
+}
+
+executable("fydeos-vncd") {
+  sources = [ "daemon/main.cc" ]
+  configs += [
+    ":target_defaults",
+    ":capture_pkg_deps",
+    ":encoder_pkg_deps",
+    ":mojo_pkg_deps",
+    ":net_pkg_deps",
+  ]
+  install_path = "sbin"
+  deps = [
+    ":libfydeos-vnc-capture",
+    ":libfydeos-vnc-daemon",
+    ":libfydeos-vnc-encoder",
+    ":libfydeos-vnc-input",
+    ":libfydeos-vnc-mojo",
+    ":libfydeos-vnc-net",
+  ]
+}
+
+if (use.test) {
+  pkg_config("test_pkg_deps") {
+    pkg_deps = [ "gtest_main" ]
+  }
+  executable("run_fydeos_vnc_tests") {
+    sources = [
+      "capture/kms_capture_source_test.cc",
+      "encoder/vnc_utils_test.cc",
+      "input/uinput_sink_test.cc",
+      "net/password_test.cc",
+    ]
+    run_test = true
+    configs += [
+      "//common-mk:test",
+      ":target_defaults",
+      ":capture_pkg_deps",
+      ":input_pkg_deps",
+      ":encoder_pkg_deps",
+      ":net_pkg_deps",
+      ":test_pkg_deps",
+    ]
+    deps = [
+      ":libfydeos-vnc-capture",
+      ":libfydeos-vnc-encoder",
+      ":libfydeos-vnc-input",
+      ":libfydeos-vnc-net",
+      "//common-mk/testrunner",
+    ]
+  }
+}

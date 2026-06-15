@@ -1,0 +1,86 @@
+// Copyright 2026 The FydeOS Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+//
+// NOTE: This mojom exists in two places and MUST stay in sync:
+//   Chromium: chrome/browser/ash/fydeos/vnc/public/mojom/
+//   ChromeOS: src/platform2/fydeos-vnc/mojo/
+//
+// See develope/task/3/fydeos-vnc-design.html §6.1.
+
+module fydeos.vnc.mojom;
+
+struct DisplayInfo {
+  int64 id;
+  string name;
+  uint32 width;
+  uint32 height;
+  bool is_primary;
+};
+
+enum StartCaptureResult {
+  kOk = 0,
+  kDisplayNotFound = 1,
+  kInternalError = 2,
+};
+
+struct DamageRect {
+  uint32 x;
+  uint32 y;
+  uint32 w;
+  uint32 h;
+};
+
+// Daemon implements this; Chrome (via FrameSinkCaptureService) calls back
+// for each captured frame.
+//
+// Params are flat (no nested struct) to dodge a mojom-generator field-order
+// mismatch we hit between chromium-side and platform2-side bindings in
+// M7a. |buffer| is a raw shared-memory handle of exactly |size_bytes|;
+// pixels are BGRA, |stride| bytes per row, |height| rows. Empty damage
+// list = full frame. Consumer must finish reading before returning.
+interface FrameConsumer {
+  OnFrameCaptured(handle<shared_buffer> buffer,
+                  uint64 size_bytes,
+                  uint32 width,
+                  uint32 height,
+                  uint32 stride,
+                  int64 timestamp_us,
+                  array<DamageRect> damage);
+  // Sent when Chrome side stops the stream (display unplugged, error).
+  OnStopped();
+};
+
+// Aggregator handed to the daemon by the bootstrap call.
+interface FydeosVncService {
+  BindFrameSinkCaptureService(
+      pending_receiver<FrameSinkCaptureService> receiver);
+  BindInputInjectionService(
+      pending_receiver<InputInjectionService> receiver);
+};
+
+// Implemented in Chrome, called from the daemon.
+//
+// M6: GetDisplays() returns stub.
+// M7a: StartCapture(...) returns kOk and Chrome side spawns a synthetic
+//      30fps gradient stream into |consumer|. No real viz wiring yet.
+// M7b: real viz::ClientFrameSinkVideoCapturer per display.
+interface FrameSinkCaptureService {
+  GetDisplays() => (array<DisplayInfo> displays);
+  StartCapture(int64 display_id, pending_remote<FrameConsumer> consumer)
+      => (StartCaptureResult result);
+  StopCapture(int64 display_id);
+};
+
+// Implemented in Chrome, called from the daemon.
+//
+// |evdev_code| is a Linux input event code (KEY_* from
+// <linux/input-event-codes.h>). The daemon maps the wire-level RFB X11
+// keysym to a KEY_* via libxkbcommon before sending; Chrome converts to
+// ui::DomCode and feeds the Ash event pipeline.
+interface InputInjectionService {
+  InjectKey(uint32 evdev_code, bool down);
+  InjectPointer(int32 x, int32 y, uint8 button_mask, int8 wheel_delta);
+  // Reserved for clipboard / Unicode text injection (M7c+ / v2).
+  InjectText(string utf8);
+};

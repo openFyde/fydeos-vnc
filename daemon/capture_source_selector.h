@@ -1,0 +1,93 @@
+// Copyright 2026 The FydeOS Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#ifndef FYDEOS_VNC_DAEMON_CAPTURE_SOURCE_SELECTOR_H_
+#define FYDEOS_VNC_DAEMON_CAPTURE_SOURCE_SELECTOR_H_
+
+#include <memory>
+
+#include <base/functional/callback.h>
+#include <base/memory/raw_ptr.h>
+#include <base/timer/timer.h>
+
+#include "fydeos-vnc/capture/capture_source.h"
+#include "fydeos-vnc/capture/framesink_capture_source.h"
+#include "fydeos-vnc/capture/kms_capture_source.h"
+#include "fydeos-vnc/input/ash_input_sink.h"
+#include "fydeos-vnc/input/input_sink.h"
+#include "fydeos-vnc/input/uinput_sink.h"
+
+namespace fydeos::vnc::mojo_client {
+class ChromeClient;
+}
+
+namespace fydeos::vnc::daemon {
+
+// Decides between KMS+uinput and FrameSink+Ash sinks based on whether
+// Chrome's Mojo bootstrap is reachable. State machine per design §5.2.4:
+//
+//   KMS_ACTIVE                  -- pre-login / Chrome down
+//     -> PROBING_FRAMESINK      -- Mojo bootstrap call sent
+//     -> FRAMESINK_ACTIVE       -- first FrameSink frame received
+//     -> KMS_ACTIVE             -- pipe disconnect / OnStopped()
+//
+// One instance per Pipeline. Owns the active capture + input sink pair.
+// Forwards captured frames to the daemon-supplied callback. Hides the
+// switch from upstream — same FrameCallback shape regardless of source.
+class CaptureSourceSelector {
+ public:
+  enum class State { kKmsActive, kProbingFrameSink, kFrameSinkActive };
+
+  struct Config {
+    capture::CrtcFinder::Spec display_spec =
+        capture::CrtcFinder::Spec::kAnyDisplay;
+    uint32_t source_width;
+    uint32_t source_height;
+    int pre_login_fps = 5;
+    int post_login_fps = 30;
+    // 5s without any FrameSink frame after StartCapture is treated as
+    // failure and we fall back to KMS.
+    base::TimeDelta probe_timeout = base::Seconds(5);
+  };
+
+  CaptureSourceSelector(Config config,
+                         mojo_client::ChromeClient* chrome,
+                         capture::CaptureSource::FrameCallback frame_cb);
+  CaptureSourceSelector(const CaptureSourceSelector&) = delete;
+  CaptureSourceSelector& operator=(const CaptureSourceSelector&) = delete;
+  ~CaptureSourceSelector();
+
+  bool Start();
+  void Stop();
+  // Suspend GPU/CPU work on both underlying sources without
+  // destroying them. Used by Pipeline so toggle-off doesn't trigger
+  // the KmsCaptureSource teardown that deadlocks behind Mesa/EGL.
+  void Pause();
+  void Resume();
+
+  State state() const { return state_; }
+  input::InputSink* input_sink();  // returns the currently-active sink
+
+ private:
+  void OnFrameFromActive(std::unique_ptr<capture::Frame> frame);
+  void TryEnterFrameSink();
+  void GoBackToKms();
+
+  const Config config_;
+  base::raw_ptr<mojo_client::ChromeClient> chrome_;
+  capture::CaptureSource::FrameCallback frame_cb_;
+
+  State state_ = State::kKmsActive;
+  std::unique_ptr<capture::KmsCaptureSource> kms_;
+  std::unique_ptr<capture::FrameSinkCaptureSource> framesink_;
+  std::unique_ptr<input::UinputInputSink> uinput_;
+  std::unique_ptr<input::AshInputSink> ash_;
+  base::OneShotTimer probe_timeout_timer_;
+};
+
+const char* StateToString(CaptureSourceSelector::State s);
+
+}  // namespace fydeos::vnc::daemon
+
+#endif  // FYDEOS_VNC_DAEMON_CAPTURE_SOURCE_SELECTOR_H_

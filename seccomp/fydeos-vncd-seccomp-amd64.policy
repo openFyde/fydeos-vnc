@@ -1,0 +1,214 @@
+# Copyright 2026 The FydeOS Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+#
+# M9 baseline seccomp policy for fydeos-vncd. Covers:
+#  * libchrome message loop (epoll / eventfd / signalfd / timerfd / pipe)
+#  * pthreads (clone / futex / mmap MAP_STACK)
+#  * D-Bus + permission_broker (AF_UNIX sockets, recvmsg with FDs)
+#  * libvncserver TCP server (AF_INET sockets, bind / listen / accept,
+#    getsockname / getpeername, setsockopt, send / recv)
+#  * Mojo IPC (memfd_create + ftruncate + shared mappings)
+#  * libdrm KMS capture (open /dev/dri/*, DRM ioctls, mmap dumb buffers)
+#  * Mesa / EGL (anonymous mmaps, render fd ioctls)
+#  * /dev/uinput (open + write + UI_* ioctls)
+#  * libcrypto / OpenSSL (getrandom)
+#  * libxcrypt bcrypt (mmap + compute)
+#  * Avahi service file write (open / write / rename)
+#
+# Run with `-L` (log denials) during M9 to surface anything missed.
+# Tighten over time once the daemon stabilises.
+
+# --- memory + brk ---
+brk: 1
+mmap: 1
+mprotect: 1
+munmap: 1
+mremap: 1
+madvise: 1
+mlock: 1
+munlock: 1
+mseal: 1
+memfd_create: 1
+ftruncate: 1
+
+# --- process / thread lifecycle ---
+clone: 1
+clone3: 1
+exit: 1
+exit_group: 1
+restart_syscall: 1
+rt_sigreturn: 1
+rt_sigaction: 1
+rt_sigprocmask: 1
+sigaltstack: 1
+arch_prctl: 1
+set_tid_address: 1
+set_robust_list: 1
+rseq: 1
+prctl: 1
+prlimit64: 1
+getrlimit: 1
+setpriority: 1
+getpriority: 1
+sched_yield: 1
+sched_getaffinity: 1
+sched_setaffinity: 1
+gettid: 1
+getpid: 1
+getppid: 1
+getuid: 1
+geteuid: 1
+getgid: 1
+getegid: 1
+getresuid: 1
+getresgid: 1
+gettimeofday: 1
+clock_getres: 1
+clock_gettime: 1
+clock_nanosleep: 1
+nanosleep: 1
+uname: 1
+getrandom: 1
+
+# --- file I/O ---
+openat: 1
+close: 1
+read: 1
+readv: 1
+write: 1
+writev: 1
+pread64: 1
+pwrite64: 1
+preadv: 1
+pwritev: 1
+lseek: 1
+fstat: 1
+newfstatat: 1
+statfs: 1
+fstatfs: 1
+access: 1
+faccessat: 1
+readlink: 1
+readlinkat: 1
+stat: 1
+lstat: 1
+getdents: 1
+getdents64: 1
+unlink: 1
+rename: 1
+mkdir: 1
+chmod: 1
+chown: 1
+fcntl: 1
+dup: 1
+dup2: 1
+dup3: 1
+pipe: 1
+pipe2: 1
+unlinkat: 1
+renameat: 1
+renameat2: 1
+mkdirat: 1
+fchmod: 1
+fchmodat: 1
+fchown: 1
+fchownat: 1
+flock: 1
+fallocate: 1
+fsync: 1
+fdatasync: 1
+sync: 1
+sysinfo: 1
+chdir: 1
+getcwd: 1
+umask: 1
+
+# --- ioctl: device-specific. Includes DRM, uinput, sockets.
+# DRM (libdrm + Mesa) and uinput use a wide range of command numbers
+# that are tedious to enumerate; permit unrestricted ioctl for M9
+# baseline and tighten in M9b.
+ioctl: 1
+
+# --- event / wait primitives ---
+epoll_create: 1
+epoll_create1: 1
+epoll_ctl: 1
+epoll_wait: 1
+epoll_pwait: 1
+eventfd: 1
+eventfd2: 1
+poll: 1
+ppoll: 1
+pselect6: 1
+select: 1
+signalfd: 1
+signalfd4: 1
+timerfd_create: 1
+timerfd_settime: 1
+timerfd_gettime: 1
+futex: 1
+get_robust_list: 1
+
+# --- networking (TCP listener + D-Bus AF_UNIX) ---
+socket: 1
+socketpair: 1
+bind: 1
+listen: 1
+accept: 1
+accept4: 1
+connect: 1
+shutdown: 1
+getsockname: 1
+getpeername: 1
+getsockopt: 1
+setsockopt: 1
+sendto: 1
+sendmsg: 1
+sendmmsg: 1
+recvfrom: 1
+recvmsg: 1
+recvmmsg: 1
+
+# --- signals ---
+tgkill: 1
+tkill: 1
+kill: 1
+rt_sigtimedwait: 1
+rt_sigsuspend: 1
+rt_sigpending: 1
+
+# --- shared memory (Mojo) ---
+shmget: 1
+shmat: 1
+shmdt: 1
+shmctl: 1
+
+# --- misc / introspection ---
+sched_getparam: 1
+sched_getscheduler: 1
+sched_get_priority_max: 1
+sched_get_priority_min: 1
+capget: 1
+
+# --- explicitly denied (sensitive) ---
+# ptrace / process_vm_*: no debugging surface.
+ptrace: return 1
+process_vm_readv: return 1
+process_vm_writev: return 1
+# Module / kernel modification.
+init_module: return 1
+finit_module: return 1
+delete_module: return 1
+kexec_load: return 1
+kexec_file_load: return 1
+# fs mount controls.
+mount: return 1
+umount2: return 1
+pivot_root: return 1
+swapon: return 1
+swapoff: return 1
+# Misc dangerous.
+reboot: return 1
+setns: return 1
+unshare: return 1
