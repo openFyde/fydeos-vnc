@@ -31,12 +31,14 @@ namespace {
 constexpr char kRfbProtoVersion[] = "RFB 003.008\n";  // 12 bytes
 constexpr size_t kRfbVersionLen = 12;
 
+constexpr uint8_t kSecTypeNone = 1;
 constexpr uint8_t kSecTypeVncAuth = 2;
 constexpr uint8_t kSecTypeVeNCrypt = 19;
 
 constexpr uint8_t kVeNCryptMajor = 0;
 constexpr uint8_t kVeNCryptMinor = 2;
 
+constexpr uint32_t kSubTypePlain = 256;
 constexpr uint32_t kSubTypeX509None = 260;
 constexpr uint32_t kSubTypeX509Plain = 262;
 
@@ -242,6 +244,42 @@ bool VeNCryptSession::DoHandshake() {
   // affect VeNCrypt negotiation.
 
   // --- 2. Advertise security types ---
+  // Loopback + no password → advertise sec-type None (1) so noVNC
+  // does not display a spurious credential prompt (its Plain sub-type
+  // path unconditionally requires username+password). Loopback here is
+  // implicitly trusted: only the on-device websockify proxy can reach
+  // 127.0.0.1:5900. The outer wss:// terminates encryption already.
+  const bool is_loopback_early = (peer_ip_ == "127.0.0.1");
+  const bool password_required_early = !password_hash_.empty();
+  if (is_loopback_early && !password_required_early) {
+    uint8_t adv_none[2] = {1, kSecTypeNone};
+    if (!WriteExact(adv_none, 2)) {
+      return false;
+    }
+    uint8_t chosen_none = 0;
+    if (!ReadExact(&chosen_none, 1)) {
+      return false;
+    }
+    if (chosen_none != kSecTypeNone) {
+      LOG(WARNING) << "loopback: client picked unexpected security "
+                   << +chosen_none;
+      return false;
+    }
+    uint32_t result_be = htonl(0u);
+    if (!WriteExact(&result_be, 4)) {
+      return false;
+    }
+    LOG(INFO) << "loopback: SecTypeNone (no password) accepted for "
+              << peer_ip_;
+    int sp[2] = {-1, -1};
+    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, sp) != 0) {
+      PLOG(WARNING) << "loopback SecTypeNone: socketpair";
+      return false;
+    }
+    plain_local_fd_.reset(sp[0]);
+    plain_remote_fd_.reset(sp[1]);
+    return true;
+  }
   // VeNCrypt is always offered. VncAuth (insecure, plaintext RFB) is
   // only added when "allow insecure clients" mode is on AND a plaintext
   // password mirror is available.
@@ -297,17 +335,36 @@ bool VeNCryptSession::DoHandshake() {
     return false;
   }
 
-  // Server advertises supported sub-types. When a password is set, we
-  // require X509Plain (TLS + plaintext password under TLS); otherwise
-  // X509None (TLS alone). Reference clients pick the *first* sub-type
-  // they recognise, so order matters when both could match.
+  // Sub-type advertisement depends on whether the peer is the on-device
+  // noVNC wsproxy (loopback) or a real LAN RFB client.
+  //
+  // - LAN peers must speak our X509 sub-handshake (RFB-embedded TLS
+  //   with our self-signed cert). Real VNC viewers (TigerVNC, etc.)
+  //   do this natively. We advertise X509Plain when a password is set
+  //   so an attacker can't downgrade to X509None.
+  //
+  // - Loopback peers come from the websockify sidecar, which proxies
+  //   the browser's wss://device:6080 to plain TCP on 127.0.0.1:5900.
+  //   The outer WebSocket-over-TLS already terminates encryption at
+  //   the device, so re-doing TLS inside the RFB stream is redundant.
+  //   noVNC's JS-side RFB.js (≤ v1.2) also does not implement the
+  //   X509 sub-handshake — it only knows Plain (sub-type 256). We
+  //   advertise Plain on loopback so the browser path can actually
+  //   complete authentication. With no password set, any credentials
+  //   the client sends are accepted; with a password set, we still
+  //   verify against the bcrypt hash.
+  const bool is_loopback = (peer_ip_ == "127.0.0.1");
   const bool password_required = !password_hash_.empty();
   uint8_t num_subtypes = 1;
   if (!WriteExact(&num_subtypes, 1)) {
     return false;
   }
-  uint32_t sub_be =
-      htonl(password_required ? kSubTypeX509Plain : kSubTypeX509None);
+  uint32_t sub_be;
+  if (is_loopback) {
+    sub_be = htonl(kSubTypePlain);
+  } else {
+    sub_be = htonl(password_required ? kSubTypeX509Plain : kSubTypeX509None);
+  }
   if (!WriteExact(&sub_be, 4)) {
     return false;
   }
@@ -316,20 +373,94 @@ bool VeNCryptSession::DoHandshake() {
     return false;
   }
   uint32_t cli_sub = ntohl(cli_sub_be);
-  // When password_required, force the client to actually use X509Plain
-  // — otherwise an unauthenticated viewer could just pick X509None.
+  // For loopback we only ever advertised Plain; for LAN we only ever
+  // advertised X509{None,Plain}, and additionally forbid downgrades
+  // from X509Plain to X509None when a password is set.
   const bool subtype_ok =
-      (cli_sub == kSubTypeX509Plain) ||
-      (cli_sub == kSubTypeX509None && !password_required);
-  uint8_t sub_status = subtype_ok ? 1 : 0;
-  if (!WriteExact(&sub_status, 1)) {
-    return false;
-  }
+      is_loopback ? (cli_sub == kSubTypePlain)
+                  : ((cli_sub == kSubTypeX509Plain) ||
+                     (cli_sub == kSubTypeX509None && !password_required));
+  // Real VNC clients (TigerVNC, libvncclient) expect a 1-byte
+  // accept/reject after picking a sub-type. noVNC ≤ 1.2's Plain path
+  // does NOT read this byte — after sending its sub-type choice it
+  // immediately sends the credential length fields. So on the loopback
+  // path we skip the accept byte; on failure we still send the reject
+  // byte because the connection is going down anyway and reject is
+  // followed by the "reason" string that some clients surface.
   if (!subtype_ok) {
+    uint8_t sub_status = 0;
+    WriteExact(&sub_status, 1);
     LOG(WARNING) << "VeNCrypt: client picked unsupported sub-type " << cli_sub
                  << " (password_required=" << password_required << ")";
     return false;
   }
+  if (!is_loopback) {
+    uint8_t sub_status = 1;
+    if (!WriteExact(&sub_status, 1)) {
+      return false;
+    }
+  }
+  // --- 4a. Loopback Plain credentials over raw TCP (no inner TLS).
+  //         The outer wss:// (websockify) already terminates encryption,
+  //         and noVNC's JS RFB stack can't speak X509 anyway, so we do
+  //         the Plain (256) credential exchange and security result
+  //         straight on the unencrypted socket. Then fall through to
+  //         the socketpair / RelayLoop wiring without an SSL context.
+  if (is_loopback) {
+    uint32_t ulen_be = 0, plen_be = 0;
+    if (!ReadExact(&ulen_be, 4)) {
+      return false;
+    }
+    if (!ReadExact(&plen_be, 4)) {
+      return false;
+    }
+    uint32_t ulen = ntohl(ulen_be);
+    uint32_t plen = ntohl(plen_be);
+    if (ulen > 4096 || plen > 4096) {
+      LOG(WARNING) << "VeNCrypt Plain (loopback): oversized credentials "
+                   << ulen << "/" << plen;
+      return false;
+    }
+    std::string username(ulen, '\0');
+    std::string password(plen, '\0');
+    if (ulen && !ReadExact(username.data(), ulen)) {
+      return false;
+    }
+    if (plen && !ReadExact(password.data(), plen)) {
+      return false;
+    }
+    // When no password is configured, accept any credentials — the
+    // loopback path is implicitly trusted (only the on-device wsproxy
+    // can reach 127.0.0.1:5900). When a password is configured,
+    // validate against the bcrypt hash exactly as the X509Plain path
+    // does.
+    bool ok = password_hash_.empty() ||
+              VerifyPassword(password, password_hash_);
+    uint32_t result_be = htonl(ok ? 0u : 1u);
+    if (!WriteExact(&result_be, 4)) {
+      return false;
+    }
+    if (!ok) {
+      static constexpr char kReason[] = "Password incorrect";
+      uint32_t rlen_be = htonl(static_cast<uint32_t>(sizeof(kReason) - 1));
+      WriteExact(&rlen_be, 4);
+      WriteExact(kReason, sizeof(kReason) - 1);
+      LOG(WARNING) << "VeNCrypt Plain (loopback): auth failed for "
+                   << peer_ip_;
+      return false;
+    }
+    LOG(INFO) << "VeNCrypt Plain (loopback): auth OK for " << peer_ip_;
+
+    int sp[2] = {-1, -1};
+    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, sp) != 0) {
+      PLOG(WARNING) << "VeNCrypt Plain (loopback): socketpair";
+      return false;
+    }
+    plain_local_fd_.reset(sp[0]);
+    plain_remote_fd_.reset(sp[1]);
+    return true;
+  }
+
   const bool is_plain = (cli_sub == kSubTypeX509Plain);
 
   // --- 4. TLS handshake (server) ---
