@@ -301,10 +301,7 @@ bool VeNCryptSession::DoHandshake() {
   // only added when "allow insecure clients" mode is on AND a plaintext
   // password mirror is available.
   const bool allow_vnc_auth = !password_plain_.empty();
-  uint8_t sec_types[3];
-  uint8_t n_sec = 0;
-  sec_types[n_sec++] = n_sec;  // count placeholder, overwritten below
-  // Write count + types as a single buffer for atomicity.
+  // Advertisement buffer: [count, type...].
   uint8_t adv[3];
   uint8_t adv_count = 1;
   adv[1] = kSecTypeVeNCrypt;
@@ -315,8 +312,6 @@ bool VeNCryptSession::DoHandshake() {
   if (!WriteExact(adv, 1 + adv_count)) {
     return false;
   }
-  (void)sec_types;
-  (void)n_sec;
   uint8_t chosen = 0;
   if (!ReadExact(&chosen, 1)) {
     return false;

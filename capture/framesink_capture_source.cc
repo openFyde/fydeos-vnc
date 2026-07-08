@@ -131,17 +131,15 @@ void FrameSinkCaptureSource::OnFrameCaptured(
   frame->width = width;
   frame->height = height;
   frame->stride = stride;
-  auto* owned = new uint8_t[size_bytes];
-  std::memcpy(owned, mapping.get(), size_bytes);
-  frame->pixels = owned;
+  // Borrow the shmem mapping directly — no intermediate copy. Frame's
+  // contract says |pixels| is only valid until the callback returns,
+  // and callback_.Run is synchronous here; |mapping| outlives the call.
+  frame->pixels = mapping.get();
   frame->captured_at = base::TimeTicks::Now();
   for (const auto& d : damage) {
     frame->damage.push_back({d->x, d->y, d->w, d->h});
   }
   callback_.Run(std::move(frame));
-  // Frame::pixels heap-deletion: ownership matches the KMS path — the
-  // consumer (VncServer::PushFrame) memcpys before returning. We free here.
-  delete[] owned;
 }
 
 void FrameSinkCaptureSource::OnStopped() {

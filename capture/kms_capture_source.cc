@@ -124,30 +124,26 @@ void KmsCaptureSource::CaptureThreadMain() {
     EglDisplayBuffer::Result r =
         egl_->Capture(/*rotate=*/true);  // blocks on vblank inside
 
-    // memcpy the EGL-owned buffer into a Frame-owned heap allocation here on
-    // the capture thread. Earlier design blocked on the main thread to
-    // serialize ownership, which deadlocked when D-Bus handlers called
-    // Stop() (main thread joins capture thread; capture thread waits on
-    // main thread task queue).
+    // Copy the EGL-owned buffer on the capture thread: EGL reuses it for
+    // the next capture, but the frame is consumed asynchronously on the
+    // main thread. |owned| travels with the closure and keeps
+    // frame->pixels alive until the callback returns.
     auto frame = std::make_unique<Frame>();
     frame->width = r.width;
     frame->height = r.height;
     frame->stride = r.stride;
     const size_t bytes = static_cast<size_t>(r.stride) * r.height;
-    auto* owned = new uint8_t[bytes];
-    std::memcpy(owned, r.buffer, bytes);
-    frame->pixels = owned;
+    auto owned = std::make_unique<uint8_t[]>(bytes);
+    std::memcpy(owned.get(), r.buffer, bytes);
+    frame->pixels = owned.get();
     frame->captured_at = base::TimeTicks::Now();
 
     origin_task_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(
-            [](FrameCallback cb, std::unique_ptr<Frame> f) {
-              const auto* p = static_cast<const uint8_t*>(f->pixels);
-              cb.Run(std::move(f));
-              delete[] p;
-            },
-            callback_, std::move(frame)));
+            [](FrameCallback cb, std::unique_ptr<Frame> f,
+               std::unique_ptr<uint8_t[]> pixels) { cb.Run(std::move(f)); },
+            callback_, std::move(frame), std::move(owned)));
 
     // Throttle to target fps.
     const int fps = target_fps_.load();

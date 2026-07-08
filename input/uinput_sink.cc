@@ -29,9 +29,6 @@ constexpr uint8_t kWheelDownBit = 1 << 4;
 constexpr uint8_t kWheelLeftBit = 1 << 5;
 constexpr uint8_t kWheelRightBit = 1 << 6;
 
-constexpr uint8_t kPersistentButtonMask =
-    kBtnLeftBit | kBtnMiddleBit | kBtnRightBit;
-
 bool Ioctl(int fd, unsigned long req) {  // NOLINT(runtime/int)
   if (HANDLE_EINTR(ioctl(fd, req)) < 0) {
     PLOG(ERROR) << "ioctl(" << req << ") failed";
@@ -208,15 +205,9 @@ void UinputInputSink::InjectPointer(int x, int y, uint8_t button_mask) {
 
   Emit(pointer_fd_.get(), EV_SYN, SYN_REPORT, 0);
 
-  // Persist only the real buttons; wheel bits are edges, not state.
-  last_button_mask_ =
-      (button_mask & kPersistentButtonMask) |
-      (last_button_mask_ & ~kPersistentButtonMask & ~(kWheelUpBit |
-       kWheelDownBit | kWheelLeftBit | kWheelRightBit));
-  // Capture the wheel bits' current state so the next-edge logic above sees
-  // them release.
-  last_button_mask_ = (last_button_mask_ & kPersistentButtonMask) |
-                      (button_mask & ~kPersistentButtonMask);
+  // Remember the full mask (buttons for press/release edges, wheel bits
+  // so the next event sees their release edge).
+  last_button_mask_ = button_mask;
 }
 
 }  // namespace fydeos::vnc::input
