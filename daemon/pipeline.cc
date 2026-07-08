@@ -12,6 +12,7 @@
 #include <base/logging.h>
 #include <base/time/time.h>
 
+#include "fydeos-vnc/daemon/state_paths.h"
 #include "fydeos-vnc/net/bind_selector.h"
 #include "fydeos-vnc/net/mdns.h"
 #include "fydeos-vnc/net/password.h"
@@ -22,21 +23,6 @@ namespace fydeos::vnc::daemon {
 namespace {
 
 constexpr base::TimeDelta kCrtcRetryInterval = base::Milliseconds(500);
-
-base::FilePath CertPath(const base::FilePath& dir) {
-  return dir.Append("cert.pem");
-}
-base::FilePath KeyPath(const base::FilePath& dir) {
-  return dir.Append("key.pem");
-}
-base::FilePath PasswordPath(const base::FilePath& dir) {
-  return dir.Append("password.bcrypt");
-}
-// Presence implies "allow insecure clients" mode — daemon mirrors the
-// plaintext password here for VncAuth challenge-response.
-base::FilePath PasswordPlainPath(const base::FilePath& dir) {
-  return dir.Append("password.plain");
-}
 
 }  // namespace
 
@@ -90,8 +76,6 @@ Pipeline::Status Pipeline::GetStatus() const {
   s.tls_fingerprint = fingerprint_;
   s.bound_ip = (state_ == State::kListening) ? bound_ip_ : std::string();
   s.bound_port = (state_ == State::kListening) ? config_.port : 0;
-  // peer_ip wiring: libvncserver's `newClientHook` will populate this in
-  // M4-bis when we have per-client state.
   return s;
 }
 
@@ -244,8 +228,10 @@ void Pipeline::TryStart() {
   vnc_server_ = std::make_unique<encoder::VncServer>(std::move(opts));
   if (!vnc_server_->Start()) {
     LOG(ERROR) << "Failed to start VNC server";
-    selector_.reset();
     vnc_server_.reset();
+    // Keep |selector_| alive, same as Stop(): destroying it can deadlock
+    // joining the KMS capture thread inside Mesa/EGL. Pause is enough.
+    selector_->Pause();
     return;
   }
 

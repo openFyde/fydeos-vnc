@@ -71,6 +71,9 @@ class Pipeline {
   void SetEnabled(bool enabled);
   bool enabled() const { return enabled_; }
 
+  // Directory holding cert/key/password files (--state-dir).
+  const base::FilePath& state_dir() const { return config_.state_dir; }
+
   Status GetStatus() const;
 
   // Re-load TLS cert + password hash from disk (after Settings rotated

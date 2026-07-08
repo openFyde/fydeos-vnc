@@ -22,11 +22,16 @@
 
 #include "fydeos-vnc/daemon/dbus_service.h"
 #include "fydeos-vnc/daemon/pipeline.h"
+#include "fydeos-vnc/daemon/state_paths.h"
 #include "fydeos-vnc/mojo/chrome_client.h"
 #include "fydeos-vnc/net/password.h"
 #include "fydeos-vnc/net/tls.h"
 
 namespace {
+
+using fydeos::vnc::daemon::CertPath;
+using fydeos::vnc::daemon::KeyPath;
+using fydeos::vnc::daemon::PasswordPath;
 
 constexpr char kVncManagerServiceName[] = "org.fydeos.VncManager";
 constexpr int kDefaultRfbPort = 5900;
@@ -39,16 +44,6 @@ constexpr char kSwitchStartEnabled[] = "start-enabled";
 constexpr char kSwitchSetPassword[] = "set-password";
 constexpr char kSwitchClearPassword[] = "clear-password";
 constexpr char kSwitchShowFingerprint[] = "show-fingerprint";
-
-base::FilePath CertPath(const base::FilePath& dir) {
-  return dir.Append("cert.pem");
-}
-base::FilePath KeyPath(const base::FilePath& dir) {
-  return dir.Append("key.pem");
-}
-base::FilePath PasswordPath(const base::FilePath& dir) {
-  return dir.Append("password.bcrypt");
-}
 
 std::string ReadPasswordFromTty(const std::string& prompt) {
   std::cerr << prompt << std::flush;

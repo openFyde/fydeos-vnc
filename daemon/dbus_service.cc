@@ -13,6 +13,7 @@
 #include <brillo/dbus/dbus_method_response.h>
 #include <dbus/object_path.h>
 
+#include "fydeos-vnc/daemon/state_paths.h"
 #include "fydeos-vnc/net/password.h"
 #include "fydeos-vnc/net/tls.h"
 
@@ -83,18 +84,15 @@ void VncManagerService::HandleGetStatus(std::string* state_out,
 
 std::string VncManagerService::HandleRegenerateCertificate() {
   LOG(INFO) << "D-Bus RegenerateCertificate";
-  // Wipe & regenerate. The Pipeline owns the cert paths; for now keep them
-  // hardcoded to /var/lib/fydeos-vncd/.
-  const base::FilePath dir("/var/lib/fydeos-vncd");
-  base::DeleteFile(dir.Append("cert.pem"));
-  base::DeleteFile(dir.Append("key.pem"));
-  if (!net::EnsureSelfSignedCertificate(dir.Append("cert.pem"),
-                                         dir.Append("key.pem"))) {
+  const base::FilePath& dir = pipeline_->state_dir();
+  base::DeleteFile(CertPath(dir));
+  base::DeleteFile(KeyPath(dir));
+  if (!net::EnsureSelfSignedCertificate(CertPath(dir), KeyPath(dir))) {
     LOG(ERROR) << "RegenerateCertificate failed";
     return std::string();
   }
   pipeline_->ReloadCredentials();
-  return net::GetCertificateFingerprint(dir.Append("cert.pem"));
+  return net::GetCertificateFingerprint(CertPath(dir));
 }
 
 void VncManagerService::HandleSetPassword(const std::string& password) {
@@ -104,8 +102,7 @@ void VncManagerService::HandleSetPassword(const std::string& password) {
     LOG(ERROR) << "SetPassword: hash failed";
     return;
   }
-  net::SavePasswordHash(base::FilePath("/var/lib/fydeos-vncd/password.bcrypt"),
-                        *hash);
+  net::SavePasswordHash(PasswordPath(pipeline_->state_dir()), *hash);
   // Password change is non-destructive: just push the new hash into
   // the live VncServer. Restarting the whole pipeline can dead-lock
   // the capture-thread join.
@@ -114,10 +111,8 @@ void VncManagerService::HandleSetPassword(const std::string& password) {
 
 void VncManagerService::HandleClearPassword() {
   LOG(INFO) << "D-Bus ClearPassword";
-  base::DeleteFile(
-      base::FilePath("/var/lib/fydeos-vncd/password.bcrypt"));
-  base::DeleteFile(
-      base::FilePath("/var/lib/fydeos-vncd/password.plain"));
+  base::DeleteFile(PasswordPath(pipeline_->state_dir()));
+  base::DeleteFile(PasswordPlainPath(pipeline_->state_dir()));
   pipeline_->ReloadPassword();
 }
 
@@ -136,17 +131,14 @@ void VncManagerService::HandleSetInsecurePassword(
     LOG(ERROR) << "SetInsecurePassword: hash failed";
     return;
   }
-  net::SavePasswordHash(base::FilePath("/var/lib/fydeos-vncd/password.bcrypt"),
-                        *hash);
-  net::SavePasswordPlain(
-      base::FilePath("/var/lib/fydeos-vncd/password.plain"), password);
+  net::SavePasswordHash(PasswordPath(pipeline_->state_dir()), *hash);
+  net::SavePasswordPlain(PasswordPlainPath(pipeline_->state_dir()), password);
   pipeline_->ReloadPassword();
 }
 
 void VncManagerService::HandleClearInsecurePassword() {
   LOG(INFO) << "D-Bus ClearInsecurePassword (VncAuth disabled)";
-  base::DeleteFile(
-      base::FilePath("/var/lib/fydeos-vncd/password.plain"));
+  base::DeleteFile(PasswordPlainPath(pipeline_->state_dir()));
   pipeline_->ReloadPassword();
 }
 

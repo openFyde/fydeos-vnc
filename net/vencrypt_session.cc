@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -26,6 +27,19 @@
 namespace fydeos::vnc::net {
 
 namespace {
+
+// A client that connects and then goes silent would otherwise pin this
+// session's worker thread (and fd) forever — blocking reads have no
+// deadline. Applied for the handshake only; the relay phase is
+// poll-driven and tolerates arbitrarily long idle periods.
+constexpr time_t kHandshakeTimeoutSeconds = 30;
+
+void SetSocketTimeouts(int fd, time_t seconds) {
+  timeval tv{};
+  tv.tv_sec = seconds;
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
 
 // Wire constants.
 constexpr char kRfbProtoVersion[] = "RFB 003.008\n";  // 12 bytes
@@ -130,7 +144,10 @@ void VeNCryptSession::Start() {
 }
 
 void VeNCryptSession::WorkerEntry() {
-  if (!DoHandshake()) {
+  SetSocketTimeouts(tcp_fd_.get(), kHandshakeTimeoutSeconds);
+  const bool handshake_ok = DoHandshake();
+  SetSocketTimeouts(tcp_fd_.get(), 0);  // relay phase: no deadline
+  if (!handshake_ok) {
     PostFinished();
     return;
   }
