@@ -25,11 +25,8 @@ class ChromeClient;
 namespace fydeos::vnc::capture {
 
 // Post-login capture path. Talks to Chrome's FrameSinkCaptureService over
-// Mojo, receives frames into shared memory, copies into Frame, and posts
-// to the consumer callback.
-//
-// M7a: receives the synthetic gradient stream Chrome emits. M7b will get
-// real viz frames; this code doesn't need to change.
+// Mojo; viz frames arrive in shared memory and are handed to the consumer
+// callback as borrowed Frame pixels.
 class FrameSinkCaptureSource
     : public CaptureSource,
       public ::fydeos::vnc::mojom::FrameConsumer {

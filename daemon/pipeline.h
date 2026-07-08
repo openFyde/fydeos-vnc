@@ -29,8 +29,8 @@ class ChromeClient;
 namespace fydeos::vnc::daemon {
 
 // One-shot pipeline owner: capture source + uinput sink + libvncserver.
-// Survives toggle-off (capture/server torn down, daemon stays resident per
-// design §5.1). Handles CRTC probe retry when DPMS is off / panel asleep.
+// Survives toggle-off (capture/server torn down, daemon stays resident).
+// Handles CRTC probe retry when DPMS is off / panel asleep.
 class Pipeline {
  public:
   enum class State {
@@ -81,8 +81,8 @@ class Pipeline {
   // new values take effect.
   void ReloadCredentials();
 
-  // Cheap password-only update: reads /var/lib/fydeos-vncd/password.bcrypt
-  // and pushes it into the running VncServer. Does NOT restart the
+  // Cheap password-only update: re-reads the password files from the
+  // state dir and pushes them into the running VncServer. Does NOT restart the
   // pipeline (avoids a teardown-time capture-thread join that can
   // deadlock the main loop). Use this for SetPassword / ClearPassword;
   // ReloadCredentials still restarts for cert rotation.

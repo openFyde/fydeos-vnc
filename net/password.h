@@ -13,8 +13,7 @@
 
 namespace fydeos::vnc::net {
 
-// Bcrypt cost factor. Cost 12 = ~250ms on a modern x86 core; matches the
-// design §5.5.4 recommendation.
+// Bcrypt cost factor. Cost 12 = ~250ms on a modern x86 core.
 constexpr int kBcryptCost = 12;
 
 // Compute a bcrypt hash of |plaintext|. Returns the modular crypt format

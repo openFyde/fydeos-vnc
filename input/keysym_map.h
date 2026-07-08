@@ -13,13 +13,12 @@
 namespace fydeos::vnc::input {
 
 // Resolves X11 keysyms to Linux input event scancodes (KEY_*) by walking the
-// active xkb_keymap. Replaces upstream kmsvnc's hardcoded US-layout table
-// (per design §5.3.2).
+// active xkb_keymap (upstream kmsvnc used a hardcoded US-layout table).
 //
 // The map is built once at construction from the system's default keymap
 // (XKB_DEFAULT_LAYOUT / XKB_DEFAULT_VARIANT env, falling back to "us"). It
 // is not reactive to runtime layout changes — that's handled post-login by
-// the Ash injector path (M7).
+// the Ash injector path.
 class KeysymMap {
  public:
   // Build using a specific RMLVO triple. Pass nullopt for any of them to use

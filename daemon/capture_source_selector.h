@@ -25,7 +25,7 @@ class ChromeClient;
 namespace fydeos::vnc::daemon {
 
 // Decides between KMS+uinput and FrameSink+Ash sinks based on whether
-// Chrome's Mojo bootstrap is reachable. State machine per design §5.2.4:
+// Chrome's Mojo bootstrap is reachable. State machine:
 //
 //   KMS_ACTIVE                  -- pre-login / Chrome down
 //     -> PROBING_FRAMESINK      -- Mojo bootstrap call sent

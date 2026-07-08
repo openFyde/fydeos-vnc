@@ -21,7 +21,7 @@ namespace fydeos::vnc::capture {
 
 // Pre-login fallback capture path. Wraps the upstream KMS+EGL readback into
 // the CaptureSource async-callback shape. Damage is always reported as full
-// frame; framerate is capped (default 5 fps) per design O-2.
+// frame; framerate is capped (default 5 fps).
 class KmsCaptureSource : public CaptureSource {
  public:
   // |spec| selects which CRTC to follow. kInternalDisplay is the right

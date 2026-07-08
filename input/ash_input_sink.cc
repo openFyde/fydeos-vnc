@@ -65,8 +65,8 @@ void AshInputSink::InjectPointer(int x, int y, uint8_t button_mask) {
   } else if ((changed & kWheelDownBit) && (button_mask & kWheelDownBit)) {
     wheel_delta = -1;
   }
-  // Horizontal wheel: M7a folds it into wheel_delta sign for simplicity;
-  // a future revision can split into a separate field.
+  // Horizontal wheel bits are accepted but not forwarded — the Mojo
+  // interface carries a single vertical wheel_delta field.
   (void)kWheelLeftBit;
   (void)kWheelRightBit;
 

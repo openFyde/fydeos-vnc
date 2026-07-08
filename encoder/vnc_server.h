@@ -29,13 +29,18 @@
 namespace fydeos::vnc::encoder {
 
 // libvncserver wrapper. Owns the rfbScreenInfoPtr, the BGRA framebuffer
-// (right-padded to a multiple of 4 pixels), and the rfbProcessEvents tick
-// timer. Single-threaded; lives on the daemon's main task runner.
+// (right-padded to a multiple of 4 pixels), the rfbProcessEvents tick
+// timer, and the TCP listeners + per-connection VeNCryptSessions that
+// terminate TLS before libvncserver sees the byte stream.
+// Single-threaded; lives on the daemon's main task runner.
 //
-// M4 scope: mandatory VeNCrypt X.509 TLS via libvncserver's OpenSSL backend.
-// Optional bcrypt-hashed password gates the VNC-authenticated sub-type
-// (X509Vnc); the unauthenticated sub-type (X509None) is offered when no
-// password is set. Plain VncAuth / NoAuth are never advertised.
+// Security surface (see VeNCryptSession for the wire details):
+//   - LAN clients: VeNCrypt X509Plain when a password is set (bcrypt
+//     verified), X509None otherwise. Legacy VncAuth is additionally
+//     advertised only in "allow insecure clients" mode.
+//   - Loopback (on-device websockify for noVNC): sec-type None without
+//     a password, VeNCrypt Plain with one — the outer wss:// already
+//     encrypts that path.
 class VncServer {
  public:
   // Returns the input sink to dispatch a given event to. Queried per-event
@@ -92,9 +97,8 @@ class VncServer {
   void SetPasswordPlain(std::string plain);
 
   // Called from the daemon's main thread with a captured frame. Copies
-  // into the libvncserver framebuffer and marks the whole frame dirty
-  // (M3 KMS source has no compositor damage info; damage-driven encode
-  // arrives in M7 with the FrameSink path).
+  // into the libvncserver framebuffer and marks |frame.damage| dirty
+  // (whole frame when the damage list is empty, e.g. the KMS source).
   void PushFrame(const capture::Frame& frame);
 
   // libvncserver event callbacks (public so the static thunks can call
@@ -107,13 +111,11 @@ class VncServer {
   // 0-clients ↔ ≥1-clients boundary.
   void OnClientConnected();
   void OnClientDisconnected();
-  bool VerifyPassword(std::string_view plaintext) const;
 
  private:
   void ProcessEventsTick();
-  // M4-bis-a: daemon owns the TCP listen socket(s).
-  // M4-bis-b: each accept spins up a VeNCryptSession that performs the
-  // handshake on a worker thread and posts back here on success.
+  // Each accepted TCP connection spins up a VeNCryptSession that runs
+  // the handshake on a worker thread and posts back here on success.
   void OnClientAccepted(base::ScopedFD tcp_fd, std::string peer_ip);
   void OnClientAuthenticated(base::ScopedFD plain_fd, std::string peer_ip);
   void OnSessionFinished(net::VeNCryptSession* session);

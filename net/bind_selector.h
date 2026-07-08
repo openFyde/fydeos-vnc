@@ -27,7 +27,8 @@ std::vector<LanInterface> EnumerateLanInterfaces();
 // Returns the IPv4 address suitable for libvncserver's listenInterface
 // field, in host byte order. Picks the first matching ethernet/Wi-Fi
 // interface. Returns 0 if no LAN interface is present (in which case the
-// caller should keep the listening socket down — design §2.4 NF-4).
+// caller should keep the listening socket down rather than bind a
+// public wildcard address).
 uint32_t SelectIPv4BindAddress();
 
 // Returns the name of the same iface SelectIPv4BindAddress() picks (e.g.,

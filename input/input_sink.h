@@ -10,9 +10,9 @@
 
 namespace fydeos::vnc::input {
 
-// Abstract input sink. See design §5.3.1. Implementations:
+// Abstract input sink. Implementations:
 //   - UinputInputSink     (pre-login fallback, /dev/uinput)
-//   - AshInputSink        (post-login primary, Mojo to Chrome) — M7
+//   - AshInputSink        (post-login primary, Mojo to Chrome)
 //
 // Keysyms are X11 keysym values (RFB carries them verbatim, RFC 6143 §7.5.4).
 // Pointer coordinates are in the source frame's pre-rotation, pre-padding

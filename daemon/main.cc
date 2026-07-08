@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// fydeos-vncd: LAN-only VNC server daemon for FydeOS. See
-// develope/task/3/fydeos-vnc-design.html for architecture.
+// fydeos-vncd: LAN-only VNC server daemon for FydeOS.
 
 #include <sysexits.h>
 #include <termios.h>

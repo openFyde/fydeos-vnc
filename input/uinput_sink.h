@@ -16,7 +16,7 @@
 namespace fydeos::vnc::input {
 
 // Pre-login fallback input sink. Synthesizes events via /dev/uinput.
-// Differences from upstream kmsvnc's uinput.cc (per design §5.3.2, O-8):
+// Differences from upstream kmsvnc's uinput.cc:
 //   - Pointer device is a mouse (BTN_LEFT/RIGHT/MIDDLE + REL_WHEEL/HWHEEL +
 //     EV_ABS for absolute X/Y), not a touchscreen with left-button-only.
 //   - Keysym→scancode lookup goes through libxkbcommon (KeysymMap), not the

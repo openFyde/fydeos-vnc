@@ -46,10 +46,6 @@ struct BioDeleter {
 };
 using ScopedBio = std::unique_ptr<BIO, BioDeleter>;
 
-struct GenAddDeleter {
-  void operator()(GENERAL_NAMES* g) { GENERAL_NAMES_free(g); }
-};
-
 std::string GetHostname() {
   char buf[256] = {0};
   if (gethostname(buf, sizeof(buf) - 1) != 0) {

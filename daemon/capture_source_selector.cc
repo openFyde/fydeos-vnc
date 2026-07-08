@@ -53,9 +53,9 @@ bool CaptureSourceSelector::Start() {
                                                       config_.source_height);
   state_ = State::kKmsActive;
 
-  // Try to enter FrameSink immediately. If Chrome isn't reachable, we stay
-  // on KMS and could retry later (M7 leaves the retry as a TODO — the
-  // primary use case is "Chrome up at daemon-enable time").
+  // Try to enter FrameSink immediately. If Chrome isn't reachable we
+  // stay on KMS (no retry — the daemon is restarted on login, which is
+  // when Chrome becomes available).
   TryEnterFrameSink();
   return true;
 }

@@ -17,7 +17,7 @@ namespace fydeos::vnc::net {
 // pair is generated with:
 //   - subject CN = device hostname (gethostname)
 //   - SAN: DNS:<hostname>
-//   - 10-year validity (per design §5.5.3)
+//   - 10-year validity
 //   - cert mode 0644, key mode 0600
 // Returns true on success.
 bool EnsureSelfSignedCertificate(const base::FilePath& cert_path,

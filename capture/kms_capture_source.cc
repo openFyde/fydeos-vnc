@@ -85,9 +85,8 @@ void KmsCaptureSource::SetTargetFps(int fps) {
 void KmsCaptureSource::CaptureThreadMain() {
   base::PlatformThread::SetName("fydeos-vnc-kmscap");
 
-  // Lazy bring-up: don't abort if the panel is asleep at boot. Retry until a
-  // CRTC shows up or Stop() is called. This is the bug noted in design §3.4
-  // that upstream kmsvnc inherits.
+  // Lazy bring-up: don't abort if the panel is asleep at boot. Retry
+  // until a CRTC shows up or Stop() is called.
   while (!stop_requested_.load()) {
     CrtcFinder finder;
     finder.SetSpec(spec_);

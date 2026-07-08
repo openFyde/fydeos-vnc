@@ -105,8 +105,8 @@ void FrameSinkCaptureSource::SetTargetFps(int fps) {
     fps = 1;
   }
   target_fps_.store(fps);
-  // M7a: target fps is advisory. Chrome side stub emits at fixed 30fps.
-  // M7b will plumb this to viz capturer's SetMinCapturePeriod.
+  // Advisory only: the Chrome-side capturer caps the rate (30 fps) and
+  // viz emits frames damage-driven below that.
 }
 
 void FrameSinkCaptureSource::OnFrameCaptured(

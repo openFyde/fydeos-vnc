@@ -38,9 +38,9 @@ struct Frame {
   base::TimeTicks captured_at;
 };
 
-// Abstract capture source. See design §5.2.1. Implementations:
-//   - KmsCaptureSource     (pre-login fallback, KMS + EGL readback)
-//   - FrameSinkCaptureSource (post-login primary, viz over Mojo) — M7
+// Abstract capture source. Implementations:
+//   - KmsCaptureSource       (pre-login fallback, KMS + EGL readback)
+//   - FrameSinkCaptureSource (post-login primary, viz over Mojo)
 class CaptureSource {
  public:
   using FrameCallback =
@@ -64,8 +64,9 @@ class CaptureSource {
   virtual void Pause() {}
   virtual void Resume() {}
 
-  // Hint to the source about desired framerate. The source may ignore it; in
-  // particular FrameSink obeys it via SetMinCapturePeriod().
+  // Hint to the source about desired framerate. Advisory: KMS throttles
+  // its capture loop to this rate; FrameSink ignores it (viz emits
+  // damage-driven frames capped by the Chrome-side capturer).
   virtual void SetTargetFps(int fps) = 0;
 };
 

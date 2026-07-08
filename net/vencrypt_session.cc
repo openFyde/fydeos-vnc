@@ -396,9 +396,9 @@ bool VeNCryptSession::DoHandshake() {
   // accept/reject after picking a sub-type. noVNC ≤ 1.2's Plain path
   // does NOT read this byte — after sending its sub-type choice it
   // immediately sends the credential length fields. So on the loopback
-  // path we skip the accept byte; on failure we still send the reject
-  // byte because the connection is going down anyway and reject is
-  // followed by the "reason" string that some clients surface.
+  // path we skip the accept byte. On failure the reject byte is sent
+  // unconditionally — the connection is going down anyway, and a
+  // loopback client that doesn't read it is unaffected.
   if (!subtype_ok) {
     uint8_t sub_status = 0;
     WriteExact(&sub_status, 1);

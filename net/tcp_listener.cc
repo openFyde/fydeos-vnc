@@ -85,8 +85,9 @@ bool TcpListener::Start(uint32_t listen_ipv4_network_order,
     return false;
   }
 
-  // IPv6 — bind to any. Real LAN-only filtering for v6 is a follow-up;
-  // for now the M5 v4 LAN filter handles the dominant case.
+  // IPv6 — bind to any. LAN-only source filtering exists for v4 only
+  // (the dominant case); v6 exposure is still limited by the
+  // permission_broker firewall rule scoped to the LAN interface.
   sockaddr_in6 v6{};
   v6.sin6_family = AF_INET6;
   v6.sin6_port = htons(static_cast<uint16_t>(port));

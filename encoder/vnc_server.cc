@@ -14,7 +14,6 @@
 
 #include "fydeos-vnc/encoder/extended_clipboard.h"
 #include "fydeos-vnc/encoder/vnc_utils.h"
-#include "fydeos-vnc/net/password.h"
 #include "fydeos-vnc/net/tls.h"
 
 namespace fydeos::vnc::encoder {
@@ -42,6 +41,21 @@ void PtrAddEventThunk(int button_mask, int x, int y, rfbClientPtr cl) {
   rfbDefaultPtrAddEvent(button_mask, x, y, cl);
 }
 
+// Sends an Extended Clipboard message: the 8-byte ServerCutText header
+// carries a signed-negative length to mark the extended format, then
+// the binary body follows.
+void SendExtClipMessage(rfbClientPtr cl, const std::string& body) {
+  const int32_t wire_len = -static_cast<int32_t>(body.size());
+  uint8_t header[8] = {};
+  header[0] = 3;  // rfbServerCutText
+  header[4] = static_cast<uint8_t>((wire_len >> 24) & 0xFF);
+  header[5] = static_cast<uint8_t>((wire_len >> 16) & 0xFF);
+  header[6] = static_cast<uint8_t>((wire_len >> 8) & 0xFF);
+  header[7] = static_cast<uint8_t>(wire_len & 0xFF);
+  rfbWriteExact(cl, reinterpret_cast<const char*>(header), sizeof(header));
+  rfbWriteExact(cl, body.data(), static_cast<int>(body.size()));
+}
+
 // RFB ClientCutText callback. With the FydeOS libvncserver patch, |len|
 // is the *signed* length on the wire:
 //   * len > 0  → legacy Latin-1 cut text (msg.cct.length raw bytes)
@@ -63,24 +77,10 @@ void SetXCutTextThunk(char* str, int len, rfbClientPtr cl) {
   const size_t body_len = static_cast<size_t>(-static_cast<int64_t>(len));
   auto msg = extclip::Parse(str, body_len);
   switch (msg.kind) {
-    case extclip::InboundKind::kNotifyText: {
-      std::string body = extclip::BuildRequestBody();
-      uint32_t blen = static_cast<uint32_t>(body.size());
-      int32_t wire_len = -static_cast<int32_t>(blen);
-      uint8_t header[8];
-      header[0] = 3;  // rfbServerCutText
-      header[1] = 0;
-      header[2] = 0;
-      header[3] = 0;
-      header[4] = static_cast<uint8_t>((wire_len >> 24) & 0xFF);
-      header[5] = static_cast<uint8_t>((wire_len >> 16) & 0xFF);
-      header[6] = static_cast<uint8_t>((wire_len >> 8) & 0xFF);
-      header[7] = static_cast<uint8_t>(wire_len & 0xFF);
-      rfbWriteExact(cl, reinterpret_cast<const char*>(header), sizeof(header));
-      rfbWriteExact(cl, body.data(), static_cast<int>(blen));
+    case extclip::InboundKind::kNotifyText:
+      SendExtClipMessage(cl, extclip::BuildRequestBody());
       LOG(INFO) << "ExtClip: requested TEXT from client";
       break;
-    }
     case extclip::InboundKind::kProvideText:
       AsServer(cl)->OnClipboard(msg.text);
       break;
@@ -89,13 +89,6 @@ void SetXCutTextThunk(char* str, int len, rfbClientPtr cl) {
   }
 }
 
-// Called by libvncserver when a new RFB client connects.
-//
-// Note: a specific TigerVNC build reproduces a Tight-encoding reconnect
-// bug that paints the screen black until a window resize. RealVNC viewer
-// and TigerVNC on macOS do not — so it's a client-side issue, not
-// libvncserver. We let the standard encoding negotiation run (Tight by
-// default for most modern clients → ~5× lower bandwidth than Raw).
 // libvncserver fires this when the connection closes (TCP EOF, error,
 // or rfbCloseClient). We use it to maintain client_count_ and trigger
 // the idle / active transition in the capture pipeline.
@@ -103,6 +96,9 @@ void ClientGoneHook(rfbClientPtr cl) {
   AsServer(cl)->OnClientDisconnected();
 }
 
+// Called by libvncserver when a new RFB client connects. Standard
+// encoding negotiation runs unmodified (Tight by default for modern
+// clients — roughly 5× lower bandwidth than Raw).
 rfbNewClientAction NewClientHook(rfbClientPtr cl) {
   LOG(INFO) << "RFB client connected: "
             << (cl->host ? cl->host : "<unknown>");
@@ -125,22 +121,7 @@ rfbBool ExtClipEnablePseudoEncoding(rfbClientPtr cl,
   if (encodingNumber != extclip::kPseudoEncoding) {
     return FALSE;
   }
-  // Compose the caps message: 8-byte ClientCutText/ServerCutText
-  // header with signed-negative length, then body.
-  std::string body = extclip::BuildCapsBody();
-  uint32_t blen = static_cast<uint32_t>(body.size());
-  int32_t wire_len = -static_cast<int32_t>(blen);
-  uint8_t header[8];
-  header[0] = 3;  // rfbServerCutText message type
-  header[1] = 0;
-  header[2] = 0;
-  header[3] = 0;
-  header[4] = static_cast<uint8_t>((wire_len >> 24) & 0xFF);
-  header[5] = static_cast<uint8_t>((wire_len >> 16) & 0xFF);
-  header[6] = static_cast<uint8_t>((wire_len >> 8) & 0xFF);
-  header[7] = static_cast<uint8_t>(wire_len & 0xFF);
-  rfbWriteExact(cl, reinterpret_cast<const char*>(header), sizeof(header));
-  rfbWriteExact(cl, body.data(), static_cast<int>(blen));
+  SendExtClipMessage(cl, extclip::BuildCapsBody());
   LOG(INFO) << "ExtClip: advertised TEXT caps to client";
   return TRUE;
 }
@@ -157,16 +138,6 @@ rfbProtocolExtension kExtClipExtension = {
     .next = nullptr,
 };
 
-// libvncserver's passwordCheck signature. Kept here (rather than deleted)
-// because M4-bis will re-enable it once VeNCrypt-Plain delivers the password
-// over TLS. Currently unreferenced — silence the unused warning.
-[[maybe_unused]] rfbBool BcryptPasswordCheckThunk(rfbClientPtr cl,
-                                                  const char* data,
-                                                  int len) {
-  auto* server = AsServer(cl);
-  return server->VerifyPassword(std::string_view(data, len)) ? TRUE : FALSE;
-}
-
 }  // namespace
 
 VncServer::VncServer(Options opts)
@@ -177,13 +148,6 @@ VncServer::VncServer(Options opts)
       port_(opts_.port),
       framebuffer_(vnc_width_ * source_height_, 0) {
   CHECK(opts_.input_sink_provider);
-  // NOTE: cert/key paths and password_hash are accepted into Options but NOT
-  // yet wired into libvncserver. libvncserver 0.9.15 has no VeNCrypt server
-  // implementation, so setting sslcertfile/sslkeyfile only enables TLS for
-  // the WebSockets path (not what design §5.5 wants), and using
-  // passwordCheck would advertise plain VncAuth (DES challenge with 8-byte
-  // truncation — unacceptable per design). M4-bis will wire all three via
-  // an in-process VeNCrypt TLS proxy.
 }
 
 VncServer::~VncServer() {
@@ -194,8 +158,8 @@ bool VncServer::Start() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   CHECK(!started_);
 
-  // M4-bis-b: build the per-process SSL_CTX. Cert/key were ensured on
-  // disk by the daemon's startup path; refuse to listen without them.
+  // Cert/key were ensured on disk by the daemon's startup path; refuse
+  // to listen without them — VeNCrypt X.509 is the primary auth path.
   if (opts_.cert_path.empty() || opts_.key_path.empty()) {
     LOG(ERROR) << "VeNCrypt requires a cert/key pair; refusing to start";
     return false;
@@ -225,7 +189,7 @@ bool VncServer::Start() {
   server_->serverFormat.blueShift = 0;
 
   server_->frameBuffer = reinterpret_cast<char*>(framebuffer_.data());
-  // M4-bis-a: daemon owns the listen sockets directly so VeNCrypt + TLS
+  // The daemon owns the listen sockets directly so VeNCrypt + TLS
   // termination can happen before libvncserver sees the stream. Setting
   // port = -1 tells rfbInitServer to skip rfbListenOnTCPPort entirely.
   server_->port = -1;
@@ -246,18 +210,13 @@ bool VncServer::Start() {
   server_->newClientHook = NewClientHook;
   server_->handleEventsEagerly = TRUE;
 
-  // M4 ships the TLS+password machinery on disk and via CLI, but does NOT
-  // advertise any security upgrade on the wire — see VncServer ctor note.
-  // sslcertfile / sslkeyfile / passwordCheck are intentionally left unset.
-
-  // M10: ship a classic black arrow cursor to the client. The captured
+  // Ship a classic black arrow cursor to the client. The captured
   // framebuffer does NOT include the OS pointer (Iris GPU uses a HW
   // cursor overlay that bypasses Ash's composited layer), so without
   // server-supplied cursor data the client sees only its local
-  // crosshair. v2 will plumb the real sprite from Ash via Mojo; for
-  // now this 12×19 arrow gives a reasonable pointer at the right
-  // position. xhot/yhot = (0,0) so the tip aligns with the cursor
-  // coordinate, matching how Ash reports it.
+  // crosshair. This 12×19 arrow gives a reasonable pointer at the
+  // right position. xhot/yhot = (0,0) so the tip aligns with the
+  // cursor coordinate, matching how Ash reports it.
   {
     static const char kArrowShape[] =
         "x           "
@@ -299,9 +258,9 @@ bool VncServer::Start() {
                      base::BindRepeating(&VncServer::ProcessEventsTick,
                                          base::Unretained(this)));
 
-  // M4-bis-a: bring up our own TCP listen sockets and hand accepted
-  // FDs to libvncserver via rfbNewClient. libvncserver no longer
-  // listens (server_->port == -1 above).
+  // Bring up our own TCP listen sockets and hand accepted FDs to
+  // libvncserver via rfbNewClient. libvncserver itself does not listen
+  // (server_->port == -1 above).
   if (!listener_.Start(
           opts_.listen_ipv4_network_order, port_,
           base::BindRepeating(&VncServer::OnClientAccepted,
@@ -452,14 +411,14 @@ void VncServer::PushFrame(const capture::Frame& frame) {
     server_->serverFormat.blueShift = 0;
   }
   ConvertBuffer(frame, framebuffer_.data(), vnc_width_);
-  // M14: prefer damage-driven encoding. viz hands us a per-frame list
-  // of dirty rectangles; libvncserver re-encodes (and re-sends) only
-  // the marked area for each client. A 1080p frame with a moving
-  // cursor sprite typically reports a single ~32×32 rect, which
-  // collapses encoding work from 8 MB / frame to a few kB.
+  // Prefer damage-driven encoding. viz hands us a per-frame list of
+  // dirty rectangles; libvncserver re-encodes (and re-sends) only the
+  // marked area for each client. A 1080p frame with a moving cursor
+  // sprite typically reports a single ~32×32 rect, which collapses
+  // encoding work from 8 MB / frame to a few kB.
   //
-  // KMS / EGL source can't report damage today; |frame.damage| is
-  // empty for that path and we fall back to whole-frame marking.
+  // KMS / EGL source can't report damage; |frame.damage| is empty for
+  // that path and we fall back to whole-frame marking.
   if (frame.damage.empty() || force_full_mark_) {
     force_full_mark_ = false;
     rfbMarkRectAsModified(server_, 0, 0, static_cast<int>(vnc_width_),
@@ -518,10 +477,6 @@ void VncServer::OnClientDisconnected() {
   if (client_count_ == 0 && opts_.idle_state_changed) {
     opts_.idle_state_changed.Run(/*is_idle=*/true);
   }
-}
-
-bool VncServer::VerifyPassword(std::string_view plaintext) const {
-  return net::VerifyPassword(plaintext, opts_.password_hash);
 }
 
 void VncServer::ProcessEventsTick() {

@@ -17,7 +17,7 @@ class ChromeClient;
 namespace fydeos::vnc::input {
 
 // Post-login input sink. Forwards Inject* into Chrome via the Mojo
-// InputInjectionService. Chrome side bridges to ui::EventInjector (M7b).
+// InputInjectionService. Chrome side bridges to SystemInputInjector.
 class AshInputSink : public InputSink {
  public:
   explicit AshInputSink(mojo_client::ChromeClient* chrome);

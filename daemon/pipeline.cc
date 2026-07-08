@@ -158,7 +158,7 @@ void Pipeline::TryStart() {
   }
   if (bind_ipv4 == 0) {
     LOG(WARNING) << "No LAN-class interface found; deferring listen "
-                    "(design §5.7.1 — never bind to wildcard public).";
+                    "(never bind to a public wildcard address).";
     state_ = State::kWaitingForCrtc;  // reuse retry slot for now
     if (!retry_timer_.IsRunning()) {
       retry_timer_.Start(FROM_HERE, kCrtcRetryInterval,
@@ -207,7 +207,7 @@ void Pipeline::TryStart() {
   opts.password_hash = password_hash;
   opts.password_plain = password_plain;
   opts.listen_ipv4_network_order = bind_ipv4;
-  // M14: capture stops burning CPU when no clients are connected.
+  // Capture stops burning CPU when no clients are connected.
   // VncServer fires this when the client count crosses 0 in either
   // direction; we forward to the selector which Pauses/Resumes both
   // KMS and FrameSink sources. selector_ is guaranteed to outlive
@@ -245,7 +245,7 @@ void Pipeline::TryStart() {
                  << " on " << iface
                  << "; clients may be blocked by the system firewall";
   }
-  // M11-b: noVNC WebSocket proxy listens on 6080. Daemon holds the
+  // The noVNC WebSocket proxy listens on 6080. Daemon holds the
   // permission_broker grant so the firewall rule tracks VNC enable /
   // disable transitions; the actual websockify process is a sibling
   // upstart job (init/fydeos-vnc-wsproxy.conf).
@@ -273,9 +273,9 @@ void Pipeline::Stop() {
   // cycles. KmsCaptureSource's worker thread blocks inside Mesa/EGL
   // during glReadPixels; destroying it from the main thread would
   // deadlock std::thread::join() behind a GPU op we can't interrupt.
-  // M11-d: tell the selector to suspend captures so toggle-off
-  // actually saves power — KMS thread sleeps on its WaitableEvent,
-  // FrameSink tells viz to StopCapture. Resume happens in TryStart.
+  // Pause suspends the KMS capture thread (the FrameSink source is
+  // damage-driven and already near-zero cost when the screen is
+  // static). Resume happens in TryStart.
   if (selector_) {
     selector_->Pause();
   }
