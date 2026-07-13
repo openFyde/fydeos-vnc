@@ -87,12 +87,28 @@ void KmsCaptureSource::CaptureThreadMain() {
 
   // Lazy bring-up: don't abort if the panel is asleep at boot. Retry
   // until a CRTC shows up or Stop() is called.
+  bool logged_not_master = false;
   while (!stop_requested_.load()) {
     CrtcFinder finder;
     finder.SetSpec(spec_);
     crtc_ = finder.Find();
     if (crtc_) {
-      break;
+      // While the compositor holds DRM master the kernel zeroes GETFB2
+      // handles on our fd, so the scanout buffer cannot be imported —
+      // and on amdgpu the same non-authenticated fd makes
+      // gbm_create_device() fail DRM_AUTH-gated ioctls, which would
+      // CHECK-crash EglDisplayBuffer. Keep retrying instead: once the
+      // compositor is gone, a fresh open makes us implicit master and
+      // both paths work. FrameSink capture covers the meantime.
+      if (crtc_->CanExportFb()) {
+        break;
+      }
+      if (!logged_not_master) {
+        logged_not_master = true;
+        LOG(WARNING) << "Scanout fb not exportable (compositor holds DRM "
+                        "master); KMS capture idle until master is free.";
+      }
+      crtc_.reset();
     }
     // Interruptible sleep: Stop() signals stop_event_ so we exit the
     // wait immediately instead of holding the joiner for up to a full

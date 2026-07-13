@@ -80,6 +80,13 @@ class Crtc {
 
   drmModeFB2* fb2() const { return fb2_.get(); }
 
+  // Whether the scanout fb can actually be exported through this fd. The
+  // kernel zeroes GETFB2 handles for clients that are neither DRM master
+  // nor CAP_SYS_ADMIN — the normal state while the compositor holds
+  // master. Geometry (width/height/mode) stays valid either way; only the
+  // EGL import path needs this to be true.
+  bool CanExportFb() const { return fb2_ && fb2_->handles[0] != 0; }
+
   uint32_t width() const { return crtc_->width; }
   uint32_t height() const { return crtc_->height; }
 

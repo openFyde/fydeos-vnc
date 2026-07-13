@@ -411,6 +411,18 @@ std::vector<Crtc::PlaneInfo> Crtc::GetConnectedPlanes() const {
       LOG(WARNING) << "Failed to query plane fb info, skipping.\n";
       continue;
     }
+    // Zeroed handles mean we lost DRM master since Find() (compositor
+    // came back). The plane cannot be imported; skip it so Capture()
+    // falls back to the snapshot fb instead of crashing in CreateImage().
+    if (fb_info->handles[0] == 0) {
+      static bool logged_lost_master = false;
+      if (!logged_lost_master) {
+        logged_lost_master = true;
+        LOG(WARNING) << "Plane fb has zeroed handles (lost DRM master?), "
+                        "skipping.";
+      }
+      continue;
+    }
     planes.emplace_back(std::make_pair(std::move(fb_info), conf));
   }
   return planes;
