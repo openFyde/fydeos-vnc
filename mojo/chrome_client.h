@@ -32,7 +32,13 @@ class ChromeClient {
   ~ChromeClient();
 
   // Brokers the bootstrap. |bus| must already be connected to the system bus.
+  // Safe to call again after a disconnect; a no-op while already bound.
   bool Bootstrap(dbus::Bus* bus);
+
+  // Re-runs Bootstrap over the bus captured on the first call if the
+  // connection to Chrome has been lost (Chrome restarts on logout, which
+  // severs every Mojo pipe). Returns true when the service is bound.
+  bool EnsureConnected();
 
   ::fydeos::vnc::mojom::FydeosVncService* service() {
     return service_.get();
@@ -44,6 +50,7 @@ class ChromeClient {
 
  private:
   std::unique_ptr<::mojo::core::ScopedIPCSupport> ipc_support_;
+  scoped_refptr<dbus::Bus> bus_;
   ::mojo::Remote<::fydeos::vnc::mojom::FydeosVncService> service_;
   ::mojo::Remote<::fydeos::vnc::mojom::FrameSinkCaptureService> frame_sink_;
   ::mojo::Remote<::fydeos::vnc::mojom::InputInjectionService> input_injection_;

@@ -53,6 +53,12 @@ class FrameSinkCaptureSource
   void OnStopped() override;
 
  private:
+  // Fires when the consumer pipe breaks without a prior OnStopped() —
+  // Chrome exits on logout without tearing captures down gracefully.
+  void OnDisconnected();
+  // Shared teardown for OnStopped/OnDisconnected. Signals upstream with a
+  // null frame as its final action; |this| may be destroyed by that call.
+  void StreamGone();
   base::raw_ptr<mojo_client::ChromeClient> chrome_;
   ::mojo::Receiver<::fydeos::vnc::mojom::FrameConsumer> consumer_{this};
   FrameCallback callback_;

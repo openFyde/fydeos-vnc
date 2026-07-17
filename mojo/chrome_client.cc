@@ -40,6 +40,10 @@ ChromeClient::ChromeClient() = default;
 ChromeClient::~ChromeClient() = default;
 
 bool ChromeClient::Bootstrap(dbus::Bus* bus) {
+  bus_ = bus;
+  if (service_.is_bound()) {
+    return true;
+  }
   EnsureMojoInit();
   if (!ipc_support_) {
     ipc_support_ = std::make_unique<::mojo::core::ScopedIPCSupport>(
@@ -94,6 +98,19 @@ bool ChromeClient::Bootstrap(dbus::Bus* bus) {
   service_.reset_on_disconnect();
   LOG(INFO) << "Bootstrapped Mojo connection to Chrome FydeosVncService";
   return service_.is_bound();
+}
+
+bool ChromeClient::EnsureConnected() {
+  if (service_.is_bound()) {
+    return true;
+  }
+  // Chrome went away (logout restarts it); the sub-interface remotes were
+  // reset by reset_on_disconnect and will lazily rebind on next access
+  // once the service pipe is up again.
+  if (!bus_) {
+    return false;
+  }
+  return Bootstrap(bus_.get());
 }
 
 ::fydeos::vnc::mojom::FrameSinkCaptureService* ChromeClient::frame_sink() {

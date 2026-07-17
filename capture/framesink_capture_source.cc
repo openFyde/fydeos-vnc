@@ -43,6 +43,8 @@ bool FrameSinkCaptureSource::Start(FrameCallback cb) {
   callback_ = std::move(cb);
   ::mojo::PendingRemote<::fydeos::vnc::mojom::FrameConsumer> consumer_remote;
   consumer_.Bind(consumer_remote.InitWithNewPipeAndPassReceiver());
+  consumer_.set_disconnect_handler(base::BindOnce(
+      &FrameSinkCaptureSource::OnDisconnected, base::Unretained(this)));
   fs->StartCapture(
       kPrimaryDisplay, std::move(consumer_remote),
       base::BindOnce([](::fydeos::vnc::mojom::StartCaptureResult r) {
@@ -91,6 +93,8 @@ void FrameSinkCaptureSource::Resume() {
     // StopCapture; safer to rebind.
     consumer_.reset();
     consumer_.Bind(consumer_remote.InitWithNewPipeAndPassReceiver());
+    consumer_.set_disconnect_handler(base::BindOnce(
+        &FrameSinkCaptureSource::OnDisconnected, base::Unretained(this)));
     fs->StartCapture(
         kPrimaryDisplay, std::move(consumer_remote),
         base::BindOnce([](::fydeos::vnc::mojom::StartCaptureResult r) {
@@ -144,10 +148,29 @@ void FrameSinkCaptureSource::OnFrameCaptured(
 
 void FrameSinkCaptureSource::OnStopped() {
   LOG(INFO) << "FrameSink stream stopped by Chrome";
-  if (callback_) {
-    callback_.Run(nullptr);  // signal upstream that source is gone
+  StreamGone();
+}
+
+void FrameSinkCaptureSource::OnDisconnected() {
+  LOG(INFO) << "FrameSink consumer pipe disconnected (Chrome gone?)";
+  StreamGone();
+}
+
+void FrameSinkCaptureSource::StreamGone() {
+  if (!started_) {
+    return;
   }
-  Stop();
+  // Clean up before signaling upstream: the null-frame callback makes the
+  // selector destroy this object (GoBackToKms resets |framesink_|), so
+  // touching any member after cb.Run would be a use-after-free. No
+  // StopCapture round-trip either — the stream/pipe is already gone.
+  started_ = false;
+  consumer_.reset();
+  auto cb = std::move(callback_);
+  callback_.Reset();
+  if (cb) {
+    cb.Run(nullptr);  // may delete |this|; must be the last statement
+  }
 }
 
 }  // namespace fydeos::vnc::capture

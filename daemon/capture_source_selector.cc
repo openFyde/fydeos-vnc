@@ -45,23 +45,37 @@ bool CaptureSourceSelector::Start() {
   // succeed switching to FrameSink, we keep KMS torn down to avoid two
   // CRTC consumers fighting for DRM master. The selector recreates KMS
   // when going back.
-  kms_ = std::make_unique<capture::KmsCaptureSource>(config_.display_spec);
-  kms_->SetTargetFps(config_.pre_login_fps);
-  kms_->Start(base::BindRepeating(
-      &CaptureSourceSelector::OnFrameFromActive, base::Unretained(this)));
+  StartKms();
   uinput_ = std::make_unique<input::UinputInputSink>(config_.source_width,
                                                       config_.source_height);
   state_ = State::kKmsActive;
 
-  // Try to enter FrameSink immediately. If Chrome isn't reachable we
-  // stay on KMS (no retry — the daemon is restarted on login, which is
-  // when Chrome becomes available).
+  // Try to enter FrameSink immediately; if Chrome isn't reachable yet
+  // (boot ordering) or goes away later (logout restarts it), the
+  // reconnect timer keeps retrying from the KMS state.
   TryEnterFrameSink();
+  if (state_ == State::kKmsActive) {
+    reconnect_timer_.Start(
+        FROM_HERE, config_.reconnect_interval,
+        base::BindRepeating(&CaptureSourceSelector::OnReconnectTick,
+                            base::Unretained(this)));
+  }
   return true;
+}
+
+void CaptureSourceSelector::StartKms() {
+  kms_ = std::make_unique<capture::KmsCaptureSource>(config_.display_spec);
+  kms_->SetTargetFps(config_.pre_login_fps);
+  kms_->Start(base::BindRepeating(
+      &CaptureSourceSelector::OnFrameFromActive, base::Unretained(this)));
+  if (paused_) {
+    kms_->Pause();
+  }
 }
 
 void CaptureSourceSelector::Stop() {
   probe_timeout_timer_.Stop();
+  reconnect_timer_.Stop();
   if (framesink_) {
     framesink_->Stop();
     framesink_.reset();
@@ -81,12 +95,14 @@ void CaptureSourceSelector::Pause() {
   // burns close to zero CPU. Pausing the framesink path would also
   // stop refreshing the libvncserver framebuffer, leaving the next
   // client that connects looking at stale (or all-zero) content.
+  paused_ = true;
   if (kms_) {
     kms_->Pause();
   }
 }
 
 void CaptureSourceSelector::Resume() {
+  paused_ = false;
   if (kms_) {
     kms_->Resume();
   }
@@ -100,7 +116,10 @@ input::InputSink* CaptureSourceSelector::input_sink() {
 }
 
 void CaptureSourceSelector::TryEnterFrameSink() {
-  if (!chrome_) {
+  if (!chrome_ || state_ != State::kKmsActive) {
+    return;
+  }
+  if (!chrome_->EnsureConnected()) {
     return;
   }
   auto* fs = chrome_->frame_sink();
@@ -131,12 +150,34 @@ void CaptureSourceSelector::GoBackToKms() {
     return;
   }
   LOG(INFO) << "Selector: falling back to KMS_ACTIVE (FrameSink unhealthy)";
+  probe_timeout_timer_.Stop();
   if (framesink_) {
     framesink_->Stop();
     framesink_.reset();
   }
   ash_.reset();
   state_ = State::kKmsActive;
+  // KMS was torn down when FrameSink went active; bring it back so the
+  // client keeps getting frames (e.g. the login screen after logout).
+  if (!kms_) {
+    StartKms();
+  }
+  // Chrome will come back (login screen / next session); keep retrying
+  // FrameSink entry so we regain the cheap capture path.
+  if (!reconnect_timer_.IsRunning()) {
+    reconnect_timer_.Start(
+        FROM_HERE, config_.reconnect_interval,
+        base::BindRepeating(&CaptureSourceSelector::OnReconnectTick,
+                            base::Unretained(this)));
+  }
+}
+
+void CaptureSourceSelector::OnReconnectTick() {
+  if (state_ != State::kKmsActive) {
+    reconnect_timer_.Stop();
+    return;
+  }
+  TryEnterFrameSink();
 }
 
 void CaptureSourceSelector::OnFrameFromActive(
@@ -151,6 +192,7 @@ void CaptureSourceSelector::OnFrameFromActive(
   if (state_ == State::kProbingFrameSink) {
     // The first frame from FrameSink confirms the path is live.
     probe_timeout_timer_.Stop();
+    reconnect_timer_.Stop();
     state_ = State::kFrameSinkActive;
     LOG(INFO) << "Selector → " << StateToString(state_)
               << " (got first frame " << frame->width << "x"

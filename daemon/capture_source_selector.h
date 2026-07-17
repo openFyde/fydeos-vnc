@@ -49,6 +49,10 @@ class CaptureSourceSelector {
     // 5s without any FrameSink frame after StartCapture is treated as
     // failure and we fall back to KMS.
     base::TimeDelta probe_timeout = base::Seconds(5);
+    // While on KMS, retry the Chrome bootstrap + FrameSink entry at this
+    // cadence. Covers Chrome coming up after the daemon at boot and
+    // Chrome restarting on logout.
+    base::TimeDelta reconnect_interval = base::Seconds(5);
   };
 
   CaptureSourceSelector(Config config,
@@ -73,6 +77,8 @@ class CaptureSourceSelector {
   void OnFrameFromActive(std::unique_ptr<capture::Frame> frame);
   void TryEnterFrameSink();
   void GoBackToKms();
+  void StartKms();
+  void OnReconnectTick();
 
   const Config config_;
   base::raw_ptr<mojo_client::ChromeClient> chrome_;
@@ -84,6 +90,10 @@ class CaptureSourceSelector {
   std::unique_ptr<input::UinputInputSink> uinput_;
   std::unique_ptr<input::AshInputSink> ash_;
   base::OneShotTimer probe_timeout_timer_;
+  base::RepeatingTimer reconnect_timer_;
+  // Mirrors Pipeline's Pause/Resume so a KMS source recreated after a
+  // FrameSink fallback starts in the right idle state.
+  bool paused_ = false;
 };
 
 const char* StateToString(CaptureSourceSelector::State s);
