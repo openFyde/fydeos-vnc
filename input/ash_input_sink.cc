@@ -70,7 +70,7 @@ void AshInputSink::InjectPointer(int x, int y, uint8_t button_mask) {
   (void)kWheelLeftBit;
   (void)kWheelRightBit;
 
-  svc->InjectPointer(x, y, button_mask, wheel_delta);
+  svc->InjectPointer(x, y, button_mask, wheel_delta, display_id_);
   last_button_mask_ = button_mask;
 }
 

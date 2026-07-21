@@ -6,10 +6,13 @@
 #define FYDEOS_VNC_DAEMON_CAPTURE_SOURCE_SELECTOR_H_
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include <base/functional/callback.h>
 #include <base/memory/raw_ptr.h>
 #include <base/timer/timer.h>
+#include <mojo/public/cpp/bindings/receiver.h>
 
 #include "fydeos-vnc/capture/capture_source.h"
 #include "fydeos-vnc/capture/framesink_capture_source.h"
@@ -35,9 +38,24 @@ namespace fydeos::vnc::daemon {
 // One instance per Pipeline. Owns the active capture + input sink pair.
 // Forwards captured frames to the daemon-supplied callback. Hides the
 // switch from upstream — same FrameCallback shape regardless of source.
-class CaptureSourceSelector {
+class CaptureSourceSelector : public ::fydeos::vnc::mojom::DisplayObserver {
  public:
   enum class State { kKmsActive, kProbingFrameSink, kFrameSinkActive };
+
+  enum class SwitchResult {
+    kOk,
+    kNotInFrameSinkMode,   // switching needs a live Chrome capture path
+    kUnknownDisplay,       // id not in the Chrome-pushed display list
+    kChromeUnavailable,    // FrameSink interface gone mid-request
+  };
+
+  struct DisplaySnapshot {
+    int64_t id;
+    std::string name;
+    uint32_t width;
+    uint32_t height;
+    bool is_primary;
+  };
 
   struct Config {
     capture::CrtcFinder::Spec display_spec =
@@ -53,6 +71,10 @@ class CaptureSourceSelector {
     // cadence. Covers Chrome coming up after the daemon at boot and
     // Chrome restarting on logout.
     base::TimeDelta reconnect_interval = base::Seconds(5);
+    // Fired whenever the captured display or the display list changes
+    // (switch, hotplug, KMS fallback). Pipeline forwards it to the D-Bus
+    // StatusChanged signal.
+    base::RepeatingClosure display_state_changed;
   };
 
   CaptureSourceSelector(Config config,
@@ -60,7 +82,7 @@ class CaptureSourceSelector {
                          capture::CaptureSource::FrameCallback frame_cb);
   CaptureSourceSelector(const CaptureSourceSelector&) = delete;
   CaptureSourceSelector& operator=(const CaptureSourceSelector&) = delete;
-  ~CaptureSourceSelector();
+  ~CaptureSourceSelector() override;
 
   bool Start();
   void Stop();
@@ -72,6 +94,17 @@ class CaptureSourceSelector {
 
   State state() const { return state_; }
   input::InputSink* input_sink();  // returns the currently-active sink
+
+  // Retargets the FrameSink capture to |display_id| (0 = primary). Only
+  // valid in FRAMESINK_ACTIVE; the KMS path stays primary-only.
+  SwitchResult SwitchToDisplay(int64_t display_id);
+  int64_t current_display_id() const { return current_display_id_; }
+  // Snapshot of the Chrome-pushed display list (empty on KMS).
+  std::vector<DisplaySnapshot> GetDisplays() const;
+
+  // mojom::DisplayObserver:
+  void OnDisplaysChanged(
+      std::vector<::fydeos::vnc::mojom::DisplayInfoPtr> displays) override;
 
  private:
   void OnFrameFromActive(std::unique_ptr<capture::Frame> frame);
@@ -94,6 +127,13 @@ class CaptureSourceSelector {
   // Mirrors Pipeline's Pause/Resume so a KMS source recreated after a
   // FrameSink fallback starts in the right idle state.
   bool paused_ = false;
+  // Display currently captured in FrameSink mode. 0 = primary; reset to 0
+  // on every KMS fallback so Chrome re-entry always lands on primary.
+  int64_t current_display_id_ = 0;
+  // Chrome-pushed display list; authoritative while FrameSink is up.
+  std::vector<::fydeos::vnc::mojom::DisplayInfoPtr> displays_;
+  ::mojo::Receiver<::fydeos::vnc::mojom::DisplayObserver>
+      display_observer_receiver_{this};
 };
 
 const char* StateToString(CaptureSourceSelector::State s);

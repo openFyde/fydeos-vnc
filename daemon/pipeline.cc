@@ -9,8 +9,11 @@
 #include <base/check.h>
 #include <base/files/file_util.h>
 #include <base/functional/bind.h>
+#include <base/json/json_writer.h>
 #include <base/logging.h>
+#include <base/strings/string_number_conversions.h>
 #include <base/time/time.h>
+#include <base/values.h>
 
 #include "fydeos-vnc/daemon/state_paths.h"
 #include "fydeos-vnc/net/bind_selector.h"
@@ -113,6 +116,61 @@ void Pipeline::SetStatusChangedCallback(StatusChangedCb cb) {
   status_cb_ = std::move(cb);
 }
 
+bool Pipeline::SwitchCaptureDisplay(int64_t display_id,
+                                    std::string* error_out) {
+  DCHECK(error_out);
+  if (!selector_) {
+    *error_out = "not-running";
+    return false;
+  }
+  switch (selector_->SwitchToDisplay(display_id)) {
+    case CaptureSourceSelector::SwitchResult::kOk:
+      return true;
+    case CaptureSourceSelector::SwitchResult::kNotInFrameSinkMode:
+      *error_out = "kms-mode";
+      return false;
+    case CaptureSourceSelector::SwitchResult::kUnknownDisplay:
+      *error_out = "unknown-display";
+      return false;
+    case CaptureSourceSelector::SwitchResult::kChromeUnavailable:
+      *error_out = "chrome-unavailable";
+      return false;
+  }
+  *error_out = "internal-error";
+  return false;
+}
+
+std::string Pipeline::GetDisplaysJson() const {
+  base::DictValue root;
+  if (!selector_) {
+    root.Set("mode", "disabled");
+  } else if (selector_->state() ==
+             CaptureSourceSelector::State::kFrameSinkActive) {
+    root.Set("mode", "framesink");
+  } else {
+    root.Set("mode", "kms");
+  }
+  const int64_t current = selector_ ? selector_->current_display_id() : 0;
+  root.Set("current", base::NumberToString(current));
+  base::ListValue displays;
+  if (selector_) {
+    for (const auto& d : selector_->GetDisplays()) {
+      base::DictValue entry;
+      entry.Set("id", base::NumberToString(d.id));
+      entry.Set("name", d.name);
+      entry.Set("width", static_cast<int>(d.width));
+      entry.Set("height", static_cast<int>(d.height));
+      entry.Set("isPrimary", d.is_primary);
+      // current == 0 means "unswitched", i.e. the primary display.
+      entry.Set("active",
+                d.id == current || (current == 0 && d.is_primary));
+      displays.Append(std::move(entry));
+    }
+  }
+  root.Set("displays", std::move(displays));
+  return base::WriteJson(root).value_or("{}");
+}
+
 void Pipeline::TryStart() {
   DCHECK(enabled_);
 
@@ -176,6 +234,10 @@ void Pipeline::TryStart() {
     sel_cfg.source_width = source_width_;
     sel_cfg.source_height = source_height_;
     sel_cfg.pre_login_fps = config_.pre_login_fps;
+    // Display switch / hotplug / KMS fallback → StatusChanged signal so
+    // D-Bus consumers know to re-query ListDisplays.
+    sel_cfg.display_state_changed = base::BindRepeating(
+        &Pipeline::Notify, base::Unretained(this));
     selector_ = std::make_unique<CaptureSourceSelector>(
         std::move(sel_cfg), chrome_,
         base::BindRepeating(

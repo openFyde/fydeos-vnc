@@ -17,12 +17,9 @@
 
 namespace fydeos::vnc::capture {
 
-namespace {
-constexpr int64_t kPrimaryDisplay = 0;
-}  // namespace
-
-FrameSinkCaptureSource::FrameSinkCaptureSource(mojo_client::ChromeClient* c)
-    : chrome_(c) {
+FrameSinkCaptureSource::FrameSinkCaptureSource(mojo_client::ChromeClient* c,
+                                               int64_t display_id)
+    : chrome_(c), display_id_(display_id) {
   CHECK(chrome_);
 }
 
@@ -46,7 +43,7 @@ bool FrameSinkCaptureSource::Start(FrameCallback cb) {
   consumer_.set_disconnect_handler(base::BindOnce(
       &FrameSinkCaptureSource::OnDisconnected, base::Unretained(this)));
   fs->StartCapture(
-      kPrimaryDisplay, std::move(consumer_remote),
+      display_id_, std::move(consumer_remote),
       base::BindOnce([](::fydeos::vnc::mojom::StartCaptureResult r) {
         LOG(INFO) << "FrameSink StartCapture result="
                   << static_cast<int>(r);
@@ -62,7 +59,7 @@ void FrameSinkCaptureSource::Stop() {
   started_ = false;
   if (chrome_) {
     if (auto* fs = chrome_->frame_sink()) {
-      fs->StopCapture(kPrimaryDisplay);
+      fs->StopCapture(display_id_);
     }
   }
   consumer_.reset();
@@ -78,7 +75,7 @@ void FrameSinkCaptureSource::Pause() {
   // |callback_| populated so Resume can restart cheaply without going
   // through the full Mojo handshake.
   if (auto* fs = chrome_->frame_sink()) {
-    fs->StopCapture(kPrimaryDisplay);
+    fs->StopCapture(display_id_);
   }
 }
 
@@ -96,12 +93,53 @@ void FrameSinkCaptureSource::Resume() {
     consumer_.set_disconnect_handler(base::BindOnce(
         &FrameSinkCaptureSource::OnDisconnected, base::Unretained(this)));
     fs->StartCapture(
-        kPrimaryDisplay, std::move(consumer_remote),
+        display_id_, std::move(consumer_remote),
         base::BindOnce([](::fydeos::vnc::mojom::StartCaptureResult r) {
           LOG(INFO) << "FrameSink Resume StartCapture result="
                     << static_cast<int>(r);
         }));
   }
+}
+
+bool FrameSinkCaptureSource::SwitchDisplay(int64_t new_display_id) {
+  if (!started_) {
+    return false;
+  }
+  auto* fs = chrome_->frame_sink();
+  if (!fs) {
+    return false;
+  }
+  LOG(INFO) << "FrameSink switching display " << display_id_ << " -> "
+            << new_display_id;
+  fs->StopCapture(display_id_);
+  display_id_ = new_display_id;
+  if (paused_) {
+    // Resume() will StartCapture with the new id; nothing to stream now.
+    return true;
+  }
+  // Chrome tears down the old VizConsumer on StopCapture; rebind a fresh
+  // pipe like Resume() does.
+  ::mojo::PendingRemote<::fydeos::vnc::mojom::FrameConsumer> consumer_remote;
+  consumer_.reset();
+  consumer_.Bind(consumer_remote.InitWithNewPipeAndPassReceiver());
+  consumer_.set_disconnect_handler(base::BindOnce(
+      &FrameSinkCaptureSource::OnDisconnected, base::Unretained(this)));
+  fs->StartCapture(
+      display_id_, std::move(consumer_remote),
+      base::BindOnce(&FrameSinkCaptureSource::OnSwitchStartResult,
+                     weak_factory_.GetWeakPtr()));
+  return true;
+}
+
+void FrameSinkCaptureSource::OnSwitchStartResult(
+    ::fydeos::vnc::mojom::StartCaptureResult result) {
+  if (result == ::fydeos::vnc::mojom::StartCaptureResult::kOk) {
+    LOG(INFO) << "FrameSink switch StartCapture ok display=" << display_id_;
+    return;
+  }
+  LOG(WARNING) << "FrameSink switch StartCapture failed result="
+               << static_cast<int>(result) << "; dropping stream";
+  StreamGone();  // may delete |this|; nothing after this call
 }
 
 void FrameSinkCaptureSource::SetTargetFps(int fps) {

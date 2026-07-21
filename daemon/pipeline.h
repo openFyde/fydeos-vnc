@@ -92,6 +92,19 @@ class Pipeline {
   // sequence as SetEnabled.
   void SetStatusChangedCallback(StatusChangedCb cb);
 
+  // Retargets the FrameSink capture to |display_id| (0 = primary). Returns
+  // false and fills |error_out| with one of "not-running", "kms-mode",
+  // "unknown-display", "chrome-unavailable" on failure. Only valid while
+  // the Chrome capture path is active; the KMS path is primary-only.
+  bool SwitchCaptureDisplay(int64_t display_id, std::string* error_out);
+
+  // JSON snapshot for the ListDisplays D-Bus method:
+  //   {"mode":"framesink"|"kms"|"disabled","current":"<id>",
+  //    "displays":[{"id":"...","name":"...","width":N,"height":N,
+  //                 "isPrimary":b,"active":b}]}
+  // ids are decimal strings (base::Value carries no int64).
+  std::string GetDisplaysJson() const;
+
  private:
   void TryStart();
   void Stop();

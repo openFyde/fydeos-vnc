@@ -28,8 +28,13 @@ class AshInputSink : public InputSink {
   void InjectPointer(int x, int y, uint8_t button_mask) override;
   void InjectClipboard(std::string_view utf8) override;
 
+  // Display whose local pixel coordinates the pointer events are in.
+  // 0 = primary. Chrome offsets to global screen coordinates.
+  void SetDisplayId(int64_t id) { display_id_ = id; }
+
  private:
   base::raw_ptr<mojo_client::ChromeClient> chrome_;
+  int64_t display_id_ = 0;
   // libxkbcommon-backed reverse map: X11 keysym → Linux KEY_* evdev code.
   // Same instance type the uinput sink uses; cheap to construct (one xkb
   // keymap walk).

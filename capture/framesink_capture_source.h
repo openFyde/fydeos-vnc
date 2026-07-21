@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <base/memory/raw_ptr.h>
+#include <base/memory/weak_ptr.h>
 #include <mojo/public/cpp/bindings/pending_remote.h>
 #include <mojo/public/cpp/bindings/receiver.h>
 
@@ -31,7 +32,9 @@ class FrameSinkCaptureSource
     : public CaptureSource,
       public ::fydeos::vnc::mojom::FrameConsumer {
  public:
-  explicit FrameSinkCaptureSource(mojo_client::ChromeClient* chrome);
+  // |display_id| selects which display Chrome captures; 0 = primary.
+  FrameSinkCaptureSource(mojo_client::ChromeClient* chrome,
+                         int64_t display_id);
   ~FrameSinkCaptureSource() override;
 
   // CaptureSource:
@@ -40,6 +43,15 @@ class FrameSinkCaptureSource
   void Pause() override;
   void Resume() override;
   void SetTargetFps(int fps) override;
+
+  int64_t display_id() const { return display_id_; }
+
+  // Retargets the running stream to |new_display_id| in place (StopCapture
+  // old id, rebind consumer, StartCapture new id). Returns false if not
+  // started or Chrome is unreachable. If Chrome later reports the async
+  // StartCapture failed, the stream is torn down via StreamGone() and the
+  // selector falls back to KMS (then auto-recovers on primary).
+  bool SwitchDisplay(int64_t new_display_id);
 
   // mojom::FrameConsumer:
   void OnFrameCaptured(
@@ -59,12 +71,18 @@ class FrameSinkCaptureSource
   // Shared teardown for OnStopped/OnDisconnected. Signals upstream with a
   // null frame as its final action; |this| may be destroyed by that call.
   void StreamGone();
+  // Async reply for the StartCapture issued by SwitchDisplay. Bound via
+  // WeakPtr: the selector may destroy this source (GoBackToKms) before
+  // the reply arrives.
+  void OnSwitchStartResult(::fydeos::vnc::mojom::StartCaptureResult result);
   base::raw_ptr<mojo_client::ChromeClient> chrome_;
+  int64_t display_id_;
   ::mojo::Receiver<::fydeos::vnc::mojom::FrameConsumer> consumer_{this};
   FrameCallback callback_;
   std::atomic<int> target_fps_{30};
   bool started_ = false;
   bool paused_ = false;
+  base::WeakPtrFactory<FrameSinkCaptureSource> weak_factory_{this};
 };
 
 }  // namespace fydeos::vnc::capture

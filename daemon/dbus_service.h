@@ -11,6 +11,7 @@
 #include <base/memory/raw_ptr.h>
 #include <brillo/dbus/async_event_sequencer.h>
 #include <brillo/dbus/dbus_object.h>
+#include <brillo/errors/error.h>
 #include <dbus/bus.h>
 
 #include "fydeos-vnc/daemon/pipeline.h"
@@ -39,6 +40,8 @@ class VncManagerService {
   void HandleClearPassword();
   void HandleSetInsecurePassword(const std::string& password);
   void HandleClearInsecurePassword();
+  bool HandleSetCaptureDisplay(brillo::ErrorPtr* error, int64_t display_id);
+  std::string HandleListDisplays();
 
   void OnPipelineStatusChanged(const Pipeline::Status& s);
 

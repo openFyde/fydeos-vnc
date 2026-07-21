@@ -76,6 +76,9 @@ void CaptureSourceSelector::StartKms() {
 void CaptureSourceSelector::Stop() {
   probe_timeout_timer_.Stop();
   reconnect_timer_.Stop();
+  display_observer_receiver_.reset();
+  displays_.clear();
+  current_display_id_ = 0;
   if (framesink_) {
     framesink_->Stop();
     framesink_.reset();
@@ -129,7 +132,8 @@ void CaptureSourceSelector::TryEnterFrameSink() {
   }
   state_ = State::kProbingFrameSink;
   LOG(INFO) << "Selector → " << StateToString(state_);
-  framesink_ = std::make_unique<capture::FrameSinkCaptureSource>(chrome_);
+  framesink_ = std::make_unique<capture::FrameSinkCaptureSource>(
+      chrome_, current_display_id_);
   framesink_->SetTargetFps(config_.post_login_fps);
   if (!framesink_->Start(base::BindRepeating(
           &CaptureSourceSelector::OnFrameFromActive,
@@ -139,6 +143,13 @@ void CaptureSourceSelector::TryEnterFrameSink() {
     return;
   }
   ash_ = std::make_unique<input::AshInputSink>(chrome_);
+  ash_->SetDisplayId(current_display_id_);
+  // (Re-)register for display hotplug pushes. This runs on every FrameSink
+  // entry, so the registration automatically survives Chrome restarts —
+  // the old receiver went down with the old pipe.
+  display_observer_receiver_.reset();
+  fs->AddDisplayObserver(
+      display_observer_receiver_.BindNewPipeAndPassRemote());
   probe_timeout_timer_.Start(
       FROM_HERE, config_.probe_timeout,
       base::BindOnce(&CaptureSourceSelector::GoBackToKms,
@@ -151,6 +162,9 @@ void CaptureSourceSelector::GoBackToKms() {
   }
   LOG(INFO) << "Selector: falling back to KMS_ACTIVE (FrameSink unhealthy)";
   probe_timeout_timer_.Stop();
+  display_observer_receiver_.reset();
+  displays_.clear();
+  current_display_id_ = 0;
   if (framesink_) {
     framesink_->Stop();
     framesink_.reset();
@@ -169,6 +183,87 @@ void CaptureSourceSelector::GoBackToKms() {
         FROM_HERE, config_.reconnect_interval,
         base::BindRepeating(&CaptureSourceSelector::OnReconnectTick,
                             base::Unretained(this)));
+  }
+  // Mode + display list changed; let D-Bus consumers re-query.
+  if (config_.display_state_changed) {
+    config_.display_state_changed.Run();
+  }
+}
+
+CaptureSourceSelector::SwitchResult CaptureSourceSelector::SwitchToDisplay(
+    int64_t display_id) {
+  if (state_ != State::kFrameSinkActive) {
+    return SwitchResult::kNotInFrameSinkMode;
+  }
+  if (display_id == current_display_id_) {
+    return SwitchResult::kOk;
+  }
+  if (display_id != 0) {
+    bool known = false;
+    for (const auto& d : displays_) {
+      if (d->id == display_id) {
+        known = true;
+        break;
+      }
+    }
+    if (!known) {
+      return SwitchResult::kUnknownDisplay;
+    }
+  }
+  if (!framesink_ || !framesink_->SwitchDisplay(display_id)) {
+    return SwitchResult::kChromeUnavailable;
+  }
+  current_display_id_ = display_id;
+  if (ash_) {
+    ash_->SetDisplayId(display_id);
+  }
+  LOG(INFO) << "Selector: capture switched to display " << display_id;
+  // Treat the retargeted stream like a fresh probe: if the new display
+  // never produces a frame, fall back to KMS (which then auto-recovers
+  // to FrameSink on primary via the reconnect timer).
+  state_ = State::kProbingFrameSink;
+  probe_timeout_timer_.Start(
+      FROM_HERE, config_.probe_timeout,
+      base::BindOnce(&CaptureSourceSelector::GoBackToKms,
+                     base::Unretained(this)));
+  if (config_.display_state_changed) {
+    config_.display_state_changed.Run();
+  }
+  return SwitchResult::kOk;
+}
+
+std::vector<CaptureSourceSelector::DisplaySnapshot>
+CaptureSourceSelector::GetDisplays() const {
+  std::vector<DisplaySnapshot> out;
+  out.reserve(displays_.size());
+  for (const auto& d : displays_) {
+    out.push_back({d->id, d->name, d->width, d->height, d->is_primary});
+  }
+  return out;
+}
+
+void CaptureSourceSelector::OnDisplaysChanged(
+    std::vector<::fydeos::vnc::mojom::DisplayInfoPtr> displays) {
+  displays_ = std::move(displays);
+  LOG(INFO) << "Selector: display list updated (" << displays_.size()
+            << " displays)";
+  if (state_ == State::kFrameSinkActive && current_display_id_ != 0) {
+    bool still_present = false;
+    for (const auto& d : displays_) {
+      if (d->id == current_display_id_) {
+        still_present = true;
+        break;
+      }
+    }
+    if (!still_present) {
+      LOG(INFO) << "Selector: captured display " << current_display_id_
+                << " disappeared; falling back to primary";
+      SwitchToDisplay(0);  // fires display_state_changed itself
+      return;
+    }
+  }
+  if (config_.display_state_changed) {
+    config_.display_state_changed.Run();
   }
 }
 

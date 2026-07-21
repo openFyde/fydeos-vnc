@@ -51,6 +51,13 @@ interface FrameConsumer {
   OnStopped();
 };
 
+// Implemented in the daemon; Chrome pushes the full display list on every
+// display add/remove/metrics change, and once immediately after
+// AddDisplayObserver so the daemon can seed its cache.
+interface DisplayObserver {
+  OnDisplaysChanged(array<DisplayInfo> displays);
+};
+
 // Aggregator handed to the daemon by the bootstrap call.
 interface FydeosVncService {
   BindFrameSinkCaptureService(
@@ -70,6 +77,9 @@ interface FrameSinkCaptureService {
   StartCapture(int64 display_id, pending_remote<FrameConsumer> consumer)
       => (StartCaptureResult result);
   StopCapture(int64 display_id);
+  // Registers an observer for display hotplug/metrics changes. The current
+  // list is pushed immediately upon registration.
+  AddDisplayObserver(pending_remote<DisplayObserver> observer);
 };
 
 // Implemented in Chrome, called from the daemon.
@@ -80,7 +90,11 @@ interface FrameSinkCaptureService {
 // ui::DomCode and feeds the Ash event pipeline.
 interface InputInjectionService {
   InjectKey(uint32 evdev_code, bool down);
-  InjectPointer(int32 x, int32 y, uint8 button_mask, int8 wheel_delta);
+  // |x|,|y| are display-local pixel coordinates of |display_id| (0 =
+  // primary). Chrome offsets them by the display's native origin to get
+  // the global screen coordinates SystemInputInjector expects.
+  InjectPointer(int32 x, int32 y, uint8 button_mask, int8 wheel_delta,
+                int64 display_id);
   // Reserved for clipboard / Unicode text injection (M7c+ / v2).
   InjectText(string utf8);
 };

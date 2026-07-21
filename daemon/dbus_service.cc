@@ -11,6 +11,7 @@
 #include <base/functional/bind.h>
 #include <base/logging.h>
 #include <brillo/dbus/dbus_method_response.h>
+#include <brillo/errors/error_codes.h>
 #include <dbus/object_path.h>
 
 #include "fydeos-vnc/daemon/state_paths.h"
@@ -56,6 +57,11 @@ void VncManagerService::RegisterAsync(
   iface->AddSimpleMethodHandler(
       "ClearInsecurePassword", base::Unretained(this),
       &VncManagerService::HandleClearInsecurePassword);
+  iface->AddSimpleMethodHandlerWithError(
+      "SetCaptureDisplay", base::Unretained(this),
+      &VncManagerService::HandleSetCaptureDisplay);
+  iface->AddSimpleMethodHandler("ListDisplays", base::Unretained(this),
+                                 &VncManagerService::HandleListDisplays);
   status_changed_signal_ =
       iface->RegisterSignalOfType<StatusSignal>("StatusChanged");
 
@@ -140,6 +146,36 @@ void VncManagerService::HandleClearInsecurePassword() {
   LOG(INFO) << "D-Bus ClearInsecurePassword (VncAuth disabled)";
   base::DeleteFile(PasswordPlainPath(pipeline_->state_dir()));
   pipeline_->ReloadPassword();
+}
+
+bool VncManagerService::HandleSetCaptureDisplay(brillo::ErrorPtr* error,
+                                                int64_t display_id) {
+  LOG(INFO) << "D-Bus SetCaptureDisplay(" << display_id << ")";
+  std::string reason;
+  if (pipeline_->SwitchCaptureDisplay(display_id, &reason)) {
+    return true;
+  }
+  // Stable error names for callers; the human-readable message carries
+  // the same reason.
+  std::string code = "org.fydeos.VncManager.Error.";
+  if (reason == "not-running") {
+    code += "NotRunning";
+  } else if (reason == "kms-mode") {
+    code += "KmsMode";
+  } else if (reason == "unknown-display") {
+    code += "UnknownDisplay";
+  } else if (reason == "chrome-unavailable") {
+    code += "ChromeUnavailable";
+  } else {
+    code += "Internal";
+  }
+  brillo::Error::AddTo(error, FROM_HERE, brillo::errors::dbus::kDomain, code,
+                       "SetCaptureDisplay failed: " + reason);
+  return false;
+}
+
+std::string VncManagerService::HandleListDisplays() {
+  return pipeline_->GetDisplaysJson();
 }
 
 void VncManagerService::OnPipelineStatusChanged(const Pipeline::Status& s) {
