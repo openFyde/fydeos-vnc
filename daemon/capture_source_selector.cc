@@ -150,6 +150,9 @@ void CaptureSourceSelector::TryEnterFrameSink() {
   display_observer_receiver_.reset();
   fs->AddDisplayObserver(
       display_observer_receiver_.BindNewPipeAndPassRemote());
+  // Chrome starts from "no clients"; push the real state (covers clients
+  // already connected across a Chrome restart).
+  fs->SetVncClientsPresent(clients_present_);
   probe_timeout_timer_.Start(
       FROM_HERE, config_.probe_timeout,
       base::BindOnce(&CaptureSourceSelector::GoBackToKms,
@@ -187,6 +190,19 @@ void CaptureSourceSelector::GoBackToKms() {
   // Mode + display list changed; let D-Bus consumers re-query.
   if (config_.display_state_changed) {
     config_.display_state_changed.Run();
+  }
+}
+
+void CaptureSourceSelector::SetClientPresence(bool present) {
+  if (clients_present_ == present) {
+    return;
+  }
+  clients_present_ = present;
+  if (state_ == State::kKmsActive || !chrome_) {
+    return;  // sent on next FrameSink entry
+  }
+  if (auto* fs = chrome_->frame_sink()) {
+    fs->SetVncClientsPresent(present);
   }
 }
 

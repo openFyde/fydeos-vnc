@@ -98,6 +98,12 @@ class CaptureSourceSelector : public ::fydeos::vnc::mojom::DisplayObserver {
   // Retargets the FrameSink capture to |display_id| (0 = primary). Only
   // valid in FRAMESINK_ACTIVE; the KMS path stays primary-only.
   SwitchResult SwitchToDisplay(int64_t display_id);
+
+  // Pipeline-fed: whether at least one authenticated VNC client is
+  // connected. Cached and forwarded to Chrome (drives the floating
+  // display-switcher visibility); re-sent on every FrameSink (re-)entry
+  // so Chrome restarts pick the current value back up.
+  void SetClientPresence(bool present);
   int64_t current_display_id() const { return current_display_id_; }
   // Snapshot of the Chrome-pushed display list (empty on KMS).
   std::vector<DisplaySnapshot> GetDisplays() const;
@@ -130,6 +136,7 @@ class CaptureSourceSelector : public ::fydeos::vnc::mojom::DisplayObserver {
   // Display currently captured in FrameSink mode. 0 = primary; reset to 0
   // on every KMS fallback so Chrome re-entry always lands on primary.
   int64_t current_display_id_ = 0;
+  bool clients_present_ = false;
   // Chrome-pushed display list; authoritative while FrameSink is up.
   std::vector<::fydeos::vnc::mojom::DisplayInfoPtr> displays_;
   ::mojo::Receiver<::fydeos::vnc::mojom::DisplayObserver>

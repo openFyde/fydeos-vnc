@@ -277,6 +277,7 @@ void Pipeline::TryStart() {
   // captured at TryStart time is safe.
   opts.idle_state_changed = base::BindRepeating(
       [](CaptureSourceSelector* s, bool is_idle) {
+        s->SetClientPresence(!is_idle);
         if (is_idle) {
           s->Pause();
         } else {
@@ -286,6 +287,7 @@ void Pipeline::TryStart() {
       selector_.get());
   // No clients yet — start the capture pipeline in paused state so we
   // don't burn cycles before the first viewer arrives.
+  selector_->SetClientPresence(false);
   selector_->Pause();
   vnc_server_ = std::make_unique<encoder::VncServer>(std::move(opts));
   if (!vnc_server_->Start()) {
@@ -339,6 +341,9 @@ void Pipeline::Stop() {
   // damage-driven and already near-zero cost when the screen is
   // static). Resume happens in TryStart.
   if (selector_) {
+    // The VncServer (and its clients) are gone; make sure Chrome-side UI
+    // driven by client presence goes away too.
+    selector_->SetClientPresence(false);
     selector_->Pause();
   }
   // Releasing port_access_ closes our end of the lifeline pipe;

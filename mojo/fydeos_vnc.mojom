@@ -80,6 +80,10 @@ interface FrameSinkCaptureService {
   // Registers an observer for display hotplug/metrics changes. The current
   // list is pushed immediately upon registration.
   AddDisplayObserver(pending_remote<DisplayObserver> observer);
+  // Daemon → Chrome: whether at least one authenticated VNC client is
+  // connected. Drives Chrome-side UI (the floating display switcher is
+  // only shown while someone is actually viewing).
+  SetVncClientsPresent(bool present);
 };
 
 // Implemented in Chrome, called from the daemon.
