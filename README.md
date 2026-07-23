@@ -15,8 +15,13 @@ fydeos-vnc/
 ├── net/       TLS, interface enumeration, mDNS (avahi)
 ├── mojo/      Mojo interface definitions (daemon side)
 ├── seccomp/   minijail seccomp policy
-└── init/      Upstart job
+├── init/      Upstart job
+└── tests/     End-to-end test suite (see tests/README.md)
 ```
+
+Unit tests are built by `BUILD.gn` (`run_fydeos_vnc_tests`). The end-to-end
+suite in `tests/` drives a running device over D-Bus and the RFB protocol; see
+`tests/README.md`.
 
 Built and installed by `chromeos-base/fydeos-vnc` (live ebuild in the FydeOS
 overlay).

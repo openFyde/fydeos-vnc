@@ -1,0 +1,361 @@
+# FydeOS VNC — Test Document
+
+This document describes how to test the FydeOS VNC remote-access feature. It
+covers two complementary methods:
+
+- **Automated tests** — a script suite (in the `tests/` directory shipped with
+  this document) that exercises the daemon's external interfaces: D-Bus
+  control API, RFB/VeNCrypt protocol, TLS, authentication, capture, input,
+  multi-display, noVNC web access, and performance.
+- **Manual tests** — cases that need a human at the screen or a real VNC
+  client: Settings UI, OOBE flow, input feel, clipboard, IME, session
+  transitions, and client compatibility.
+
+Together, the automated cases (T01–T11) and manual cases (M-\*) cover all VNC
+functions. The coverage matrix in section 5 maps every function to its cases.
+
+---
+
+## 1. Feature overview (what is being tested)
+
+FydeOS VNC lets any standards-compliant VNC client on the same LAN view and
+control a FydeOS device, with no internet dependency. Functions under test:
+
+| Area | Function |
+|---|---|
+| Lifecycle | Service starts at boot, stays resident, toggled via Settings; auto-restarts after a crash |
+| Control | D-Bus API `org.fydeos.VncManager` (enable/disable, status, password, certificate, display selection) |
+| Capture | Login screen / OOBE / lock screen (KMS path) and in-session desktop (compositor path), automatic switch-over between them |
+| Input | Keyboard, pointer, right/middle click, scroll wheel; pre-login and in-session paths |
+| Encoding | Tight/Raw RFB encodings, damage-driven updates, framebuffer resize |
+| Security | Mandatory TLS (VeNCrypt) on LAN, self-signed cert + SHA-256 fingerprint, optional password (bcrypt), optional legacy-compatible "insecure client" mode, loopback fast path for the built-in web client |
+| Network | LAN-only binding, port 5900 (RFB) and 6080 (web), mDNS `_rfb._tcp` announcement |
+| Web access | Built-in noVNC client served over HTTPS on port 6080 |
+| Multi-display | Enumerate displays, choose which display a session views |
+| Resilience | Logout / UI crash / login transitions without service loss; suspend/resume |
+| Performance | Idle < 1% CPU, streaming < 15% CPU, LAN input latency < 80 ms |
+
+---
+
+## 2. Test environment
+
+### 2.1 Device under test (DUT)
+
+- A FydeOS device with the VNC feature installed, reachable over the LAN.
+- SSH access as `root` (developer mode) — required by the automated suite to
+  drive the D-Bus API and inspect device state.
+- For full coverage: a user account to log in with, and (optionally) a second
+  display for the multi-display cases.
+
+### 2.2 Test host
+
+A Linux machine on the same LAN as the DUT with:
+
+| Tool | Needed for | Required? |
+|---|---|---|
+| `bash`, `ssh`, `curl`, `openssl` | all scripts | yes |
+| `python3` (3.8+) | RFB protocol client | yes |
+| `sshpass` | non-interactive SSH with password | recommended |
+| `avahi-browse` (package `avahi-utils`) | mDNS discovery check | optional |
+| TigerVNC (or another VeNCrypt-capable viewer) | manual cases | for manual tests |
+
+No third-party Python packages are needed — the bundled RFB client
+(`lib/vncrfb.py`) is standard-library only.
+
+### 2.3 Configuration
+
+Edit `tests/env.sh` (or export the variables) to point at your DUT:
+
+```bash
+DEVICE_IP=…            # DUT LAN address
+DEVICE_SSH_PORT=…      # SSH port
+DEVICE_USER=root
+DEVICE_PASSWORD=…      # or use SSH keys
+VNC_PORT=5900
+NOVNC_PORT=6080
+```
+
+---
+
+## 3. Automated tests
+
+### 3.1 Running
+
+```bash
+cd tests
+./run_all.sh                 # all non-destructive tests
+./run_all.sh t05 t06         # a subset
+FORCE=1 ./run_all.sh         # also run T09 (logs the device user out!)
+```
+
+Each script prints `[PASS]` / `[FAIL]` / `[WARN]` / `[SKIP]` per check and a
+summary line. `run_all.sh` prints a combined report and stores logs,
+screenshots, and `results.txt` under `tests/artifacts/`.
+
+- **FAIL** — a functional requirement was violated; file a bug with the log.
+- **WARN** — a soft target missed or an environment-dependent check; verify
+  manually before filing.
+- **SKIP** — preconditions not met (e.g. no user session, missing tool).
+
+The suite is state-safe: tests that change passwords or certificates restore a
+clean, no-password state before exiting. Exception: T04 rotates the TLS
+certificate (clients that pinned the old fingerprint must re-verify), and T09
+(opt-in) ends the user session.
+
+### 3.2 Test scripts
+
+| Script | Title | What it verifies |
+|---|---|---|
+| `t01_service_lifecycle.sh` | Service lifecycle | Both system jobs running; daemon sandboxed as the `fydeos-vnc` user; D-Bus name owned; state dir permissions; automatic respawn after a kill; D-Bus name re-claimed after respawn |
+| `t02_dbus_api.sh` | D-Bus API | `GetStatus` field validity; enable/disable round-trip closes/opens the RFB port; `ListDisplays` returns valid JSON; typed error for bogus `SetCaptureDisplay`; `SetPassword`/`SetInsecurePassword`/`Clear*` create and remove the right files with mode 0600 and bcrypt format; `RegenerateCertificate` returns a fingerprint |
+| `t03_network_binding.sh` | Network binding & discovery | RFB listener on LAN + loopback; web port listening; bound address is RFC-1918/link-local (never public); listener teardown on disable and restore on enable; mDNS `_rfb._tcp` announcement |
+| `t04_tls_certificate.sh` | TLS & certificate | cert/key present with correct modes and owner; RSA-4096, CN = hostname; fingerprint identical across D-Bus, on-disk cert, RFB wire, and web port; TLS 1.1 rejected / 1.2 accepted; regeneration changes the fingerprint and is live without restart |
+| `t05_authentication.sh` | Authentication matrix | LAN offers only VeNCrypt (no plaintext types); X509None without password, X509Plain with password; wrong password rejected, password changes effective immediately; loopback offers SecTypeNone (no password) / VeNCrypt Plain (password); insecure mode adds working VncAuth (DES) and rejects wrong passwords |
+| `t06_capture.sh` | Capture pipeline | Valid geometry, width padded to ×4; geometry matches the captured display; frame content is real (not blank); reconnect after disconnect works (idle pause/resume); continuous incremental update stream is healthy, fps reported |
+| `t07_input.sh` | Input injection | Server accepts pointer/click/right-click/wheel/key/cut-text without dropping the session; pre-login: virtual keyboard+pointer devices exist on the DUT; in-session: an injected Search key visibly toggles the launcher (screenshot diff) |
+| `t08_multidisplay.sh` | Multi-display | Display inventory; switching the captured display changes the framebuffer to that display's geometry, for every display; `0` returns to primary; unknown id gives the documented error; correct refusal pre-login |
+| `t09_session_transition.sh` | Session transition (opt-in, destructive) | UI restart (≈ logout/Chrome crash): daemon keeps listening, capture falls back to the login-screen path, fresh clients get real frames; held session behavior recorded |
+| `t10_novnc_web.sh` | noVNC web access | Web client page and assets served over HTTPS; plain HTTP refused; WebSocket upgrade endpoint responds; proxy backend on device loopback is listening |
+| `t11_performance.sh` | Performance sanity | Idle CPU vs < 1% target; streaming CPU vs < 15% target; full-frame grab round-trip time (informative) |
+
+### 3.3 The RFB test client
+
+`lib/vncrfb.py` is also useful interactively when reproducing bugs:
+
+```bash
+python3 lib/vncrfb.py --host <DUT_IP> sectypes                  # advertised auth
+python3 lib/vncrfb.py --host <DUT_IP> probe                     # geometry, TLS fp
+python3 lib/vncrfb.py --host <DUT_IP> screenshot out.png        # grab a frame
+python3 lib/vncrfb.py --host <DUT_IP> --password X click 500 300
+python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # fps/bandwidth
+```
+
+---
+
+## 4. Manual test cases
+
+Record each case as Pass / Fail / Blocked with notes. "Viewer" means a
+VeNCrypt-capable VNC client (TigerVNC recommended) unless stated otherwise.
+
+### 4.1 Settings UI
+
+**M-SET-1 — Enable/disable toggle**
+Precondition: logged in.
+1. Open Settings and locate the VNC / remote access section.
+2. Turn the toggle on. Expected: status becomes active; connection info
+   (IP:port) and the TLS fingerprint appear; a viewer can connect.
+3. Turn the toggle off. Expected: active viewer is disconnected; new
+   connections are refused; state persists across a reboot.
+
+**M-SET-2 — Fingerprint verification**
+1. With VNC enabled, read the SHA-256 fingerprint in Settings.
+2. Connect with a viewer that displays the server certificate.
+   Expected: the fingerprints match exactly.
+
+**M-SET-3 — Password set and clear**
+1. Set a password in Settings. Expected: a viewer now requires it; the wrong
+   password is refused; the right one connects.
+2. Clear the password. Expected: viewer connects without a password (TLS
+   still on).
+
+**M-SET-4 — Regenerate certificate**
+1. Note the current fingerprint; click regenerate.
+   Expected: a new fingerprint appears; a viewer that trusted the old
+   certificate warns about the change; Settings warns if sessions are active.
+
+### 4.2 OOBE flow
+
+**M-OOBE-1 — Remote setup, keep enabled with password**
+Precondition: device freshly reset, VNC connectable during OOBE.
+1. From a viewer, walk through OOBE remotely.
+2. At the end of OOBE, expected: a VNC setup screen appears (because a VNC
+   session is active) explaining the feature, with password + confirm fields,
+   an "allow insecure connections" option, Enable and Disable buttons.
+3. Enter matching passwords and click Enable.
+   Expected: setup completes; VNC stays enabled; reconnecting now requires
+   the new password.
+
+**M-OOBE-2 — Remote setup, disable at the end**
+As M-OOBE-1, but click Disable. Expected: VNC service is disabled after
+OOBE; no further connections possible; Settings shows it off.
+
+**M-OOBE-3 — Enable without password**
+As M-OOBE-1, but click Enable with empty password fields.
+Expected: a confirmation dialog warns about enabling without a password;
+cancelling returns to the form; confirming enables passwordless (TLS-only)
+access.
+
+**M-OOBE-4 — Local setup (no VNC session)**
+Complete OOBE locally with no VNC client connected.
+Expected: the VNC setup screen is *not* shown; after OOBE the VNC service is
+disabled by default.
+
+### 4.3 Viewing and input
+
+**M-INP-1 — Pre-login control**
+Precondition: device at the login/lock screen, VNC enabled.
+1. Connect and verify the login screen is rendered and updates live.
+2. Click into the password field, type a wrong password, press Enter.
+   Expected: clicks and keystrokes land correctly (dots appear, error shows);
+   pointer position matches the local screen.
+
+**M-INP-2 — In-session pointer parity**
+Precondition: logged in, viewer connected.
+1. Right-click the desktop. Expected: context menu opens.
+2. Middle-click a link in the browser. Expected: opens in a new tab.
+3. Scroll with the wheel in a long page, both directions. Expected: smooth
+   scrolling.
+4. Drag a window by its title bar; drag-select text. Expected: drag works
+   without sticking or dropping.
+
+**M-INP-3 — Keyboard layouts and IME**
+Precondition: logged in, a non-US layout or CJK IME added on the DUT.
+1. Type letters, symbols, and shifted characters into a text field via VNC.
+   Expected: characters match the DUT's active layout.
+2. Switch to the IME and compose text (e.g. pinyin → candidate selection).
+   Expected: composition and candidate windows behave as with a local
+   keyboard.
+
+**M-CLP-1 — Clipboard**
+Precondition: viewer with clipboard support (TigerVNC / noVNC clipboard
+panel).
+1. Copy text on the viewer side, paste into an editor on the DUT via VNC.
+2. Copy text on the DUT, check it arrives in the viewer clipboard.
+   Expected: both directions transfer plain text correctly (long text up to
+   ~1 MB; non-ASCII preserved with a client using the extended clipboard).
+
+### 4.4 Displays and sessions
+
+**M-DSP-1 — Display selection experience**
+Precondition: two displays connected, logged in.
+1. Using the display-selection interface (or the automated switch in T08),
+   view each display in turn.
+   Expected: correct image on each; input lands on the display being viewed;
+   geometry changes are handled by the viewer without artifacts.
+
+**M-DSP-2 — Display hotplug**
+1. While viewing the external display, unplug it.
+   Expected: the session falls back to the remaining/primary display rather
+   than freezing or disconnecting.
+2. Re-plug the display. Expected: it reappears in the display list and can be
+   selected again.
+
+**M-SES-1 — Login/logout while viewing**
+1. Connect at the login screen, log in while watching remotely.
+   Expected: transition to the desktop is visible; brief quality change
+   (login-screen mode is lower fps) is acceptable; no permanent freeze or
+   disconnect; input works after the transition.
+2. Log out while connected. Expected: view returns to the login screen and
+   stays live; input works at the login screen.
+
+**M-SES-2 — Lock screen**
+Lock the session while a viewer is connected.
+Expected: lock screen is shown remotely; unlocking via VNC (password typing)
+works.
+
+**M-SES-3 — Suspend / resume**
+1. With a viewer connected, suspend the DUT (close lid or power menu), then
+   resume it.
+   Expected: the daemon reattaches after resume — reconnecting the viewer
+   yields a live picture; the device did not fail to suspend because of VNC.
+
+### 4.5 Clients, web access, discovery
+
+**M-CLI-1 — Client compatibility matrix**
+Connect, authenticate (with and without password), view, and type with each
+client; record results per client:
+- TigerVNC (Linux/Windows) — primary reference client
+- RealVNC Viewer
+- noVNC (any modern browser, via the built-in web access)
+- A mobile client (e.g. AVNC on Android, or another VeNCrypt-capable app)
+Expected: VeNCrypt-capable clients work fully. Clients without VeNCrypt/TLS
+support must be *refused* unless "allow insecure connections" was enabled —
+that refusal is correct behavior, not a bug.
+
+**M-WEB-1 — Full noVNC session**
+1. Browse to `https://<DUT_IP>:6080/vnc.html`, accept the self-signed
+   certificate warning.
+2. Connect, enter the password if set, operate the desktop (type, click,
+   scroll), use the noVNC clipboard panel, then disconnect.
+   Expected: full session works in the browser with no plugin.
+
+**M-NET-1 — mDNS discovery**
+On a client with zeroconf/Bonjour browsing (e.g. `avahi-browse -rt
+_rfb._tcp`, or a mobile VNC app's discovery view), verify the device
+announces itself ("FydeOS VNC on <hostname>") with the right port when
+enabled, and the announcement disappears when disabled.
+
+**M-NET-2 — Network change**
+While enabled, switch the DUT between Wi-Fi and Ethernet (or change APs).
+Expected: the service re-binds to the new LAN address; Settings shows the
+updated address; a viewer can connect on the new address.
+
+### 4.6 Security and performance
+
+**M-SEC-1 — Failed-authentication behavior**
+With a password set, attempt several consecutive wrong-password logins, then
+the correct one.
+Expected: wrong attempts are always refused; the service stays up
+(no crash/DoS); note whether rapid retries are throttled.
+
+**M-SEC-2 — No plaintext on the wire**
+With default settings (insecure mode off), attempt to connect with a client
+configured for unencrypted VNC only.
+Expected: connection is refused before any screen data is sent.
+
+**M-PRF-1 — Latency and quality feel**
+On an idle LAN, with one viewer at native resolution:
+1. Type in a terminal/editor via VNC. Expected: echo feels immediate
+   (target < 80 ms; compare side-by-side with the physical screen).
+2. Drag a window in circles; play a video fullscreen.
+   Expected: motion is coherent (some blur/tearing acceptable); the UI stays
+   responsive; DUT does not overheat or starve foreground apps.
+
+---
+
+## 5. Coverage matrix
+
+| Function | Automated | Manual |
+|---|---|---|
+| Service start/stop/respawn/sandbox | T01 | — |
+| Settings toggle & status | T02 (D-Bus level) | M-SET-1 |
+| Enable/disable listener lifecycle | T02, T03 | M-SET-1 |
+| TLS mandatory, cert, fingerprint | T04, T05 | M-SET-2, M-SEC-2 |
+| Certificate regeneration | T02, T04 | M-SET-4 |
+| Password auth (bcrypt, live update) | T02, T05 | M-SET-3 |
+| Insecure-client mode (VncAuth/plain) | T05 | M-CLI-1 |
+| Loopback/web auth fast path | T05 | M-WEB-1 |
+| LAN-only binding | T03 | M-NET-2 |
+| mDNS discovery | T03 | M-NET-1 |
+| Pre-login (KMS) capture | T06*, T09 | M-INP-1 |
+| In-session (compositor) capture | T06* | M-PRF-1 |
+| Damage/update stream, fps | T06, T11 | M-PRF-1 |
+| Framebuffer geometry/padding/resize | T06, T08 | M-DSP-1 |
+| Pre-login input (virtual devices) | T07* | M-INP-1 |
+| In-session input (buttons, wheel, keys) | T07* | M-INP-2, M-INP-3 |
+| IME / keyboard layout | — | M-INP-3 |
+| Clipboard (legacy + extended) | T07 (accept only) | M-CLP-1 |
+| Multi-display enumeration/switch | T08 | M-DSP-1, M-DSP-2 |
+| Logout/login/crash resilience | T09 | M-SES-1, M-SES-2 |
+| Suspend/resume | — | M-SES-3 |
+| noVNC web access | T10 | M-WEB-1 |
+| OOBE setup screen | — | M-OOBE-1…4 |
+| Client compatibility | protocol level: T05, T06 | M-CLI-1 |
+| CPU / latency targets | T11 | M-PRF-1 |
+| Auth abuse resilience | — | M-SEC-1 |
+
+\* T06/T07 automatically adapt to the DUT's current state: run them once at
+the login screen and once logged in to cover both capture/input paths.
+
+---
+
+## 6. Recommended test passes
+
+- **Smoke (≈5 min, automated)**: `./run_all.sh t01 t02 t06` — service up,
+  API sane, pixels flowing.
+- **Full automated (≈15 min)**: `./run_all.sh` logged in, then again at the
+  login screen (covers both capture/input backends), plus `FORCE=1 ./run_all.sh
+  t09` when the session may be sacrificed.
+- **Release regression**: full automated pass + all manual cases in
+  section 4, including the client matrix and OOBE cases on a freshly reset
+  device.
