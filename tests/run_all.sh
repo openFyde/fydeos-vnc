@@ -1,9 +1,13 @@
 #!/bin/bash
-# Run the whole automated fydeos-vnc test suite and print a combined report.
+# Run the external-observer shell suite and print a combined report.
 #
-#   ./run_all.sh              run all non-destructive tests
-#   FORCE=1 ./run_all.sh      also run t09 (logs out the device session!)
-#   ./run_all.sh t05 t06      run a subset
+# On-device functional coverage now lives in the Tast bundle
+# (fydeos-tast-tests, tests named vnc.*). This shell suite is the complement
+# for checks that need a separate host on the DUT's LAN — discovery, concurrent
+# viewers, host-side performance — plus the vncrfb.py client for manual repro.
+#
+#   ./run_all.sh              run all checks
+#   ./run_all.sh x02          run a subset
 cd "$(dirname "$0")"
 source ./env.sh
 mkdir -p "$ARTIFACTS"
@@ -18,8 +22,7 @@ if [[ $# -gt 0 ]]; then
   tests=()
   for t in "$@"; do tests+=("$(ls "${t}"*.sh 2>/dev/null | head -1)"); done
 else
-  tests=(t01_*.sh t02_*.sh t03_*.sh t04_*.sh t05_*.sh t06_*.sh t07_*.sh \
-         t08_*.sh t09_*.sh t10_*.sh t11_*.sh)
+  tests=(x01_*.sh x02_*.sh x03_*.sh)
 fi
 
 overall=0

@@ -1,18 +1,22 @@
 # FydeOS VNC — Test Document
 
 This document describes how to test the FydeOS VNC remote-access feature. It
-covers two complementary methods:
+covers three complementary methods:
 
-- **Automated tests** — a script suite (in the `tests/` directory shipped with
-  this document) that exercises the daemon's external interfaces: D-Bus
-  control API, RFB/VeNCrypt protocol, TLS, authentication, capture, input,
-  multi-display, noVNC web access, and performance.
+- **On-device automated tests (Tast)** — the `vnc.*` tests run on the device
+  and exercise the daemon end to end: D-Bus control API, RFB/VeNCrypt protocol,
+  TLS, authentication, capture, input, the Settings UI, multi-display, noVNC web
+  access, session transitions, and CPU.
+- **External-observer tests (shell suite)** — a small set of checks that only
+  make sense from a separate host on the DUT's LAN: mDNS propagation, concurrent
+  viewers, and host-side performance.
 - **Manual tests** — cases that need a human at the screen or a real VNC
-  client: Settings UI, OOBE flow, input feel, clipboard, IME, session
+  client: Settings look-and-feel, OOBE flow, input feel, clipboard, IME, session
   transitions, and client compatibility.
 
-Together, the automated cases (T01–T11) and manual cases (M-\*) cover all VNC
-functions. The coverage matrix in section 5 maps every function to its cases.
+Together the `vnc.*` Tast tests, the `x0*` shell checks, and the manual cases
+(`M-*`) cover all VNC functions. The coverage matrix in section 5 maps every
+function to its cases.
 
 ---
 
@@ -42,21 +46,25 @@ control a FydeOS device, with no internet dependency. Functions under test:
 ### 2.1 Device under test (DUT)
 
 - A FydeOS device with the VNC feature installed, reachable over the LAN.
-- SSH access as `root` (developer mode) — required by the automated suite to
-  drive the D-Bus API and inspect device state.
-- For full coverage: a user account to log in with, and (optionally) a second
-  display for the multi-display cases.
+- The on-device Tast tests require a **test image** (one that carries the Tast
+  test runner and the `chrome` test support). The external shell checks work
+  against any image with the VNC feature and `root` SSH.
+- SSH access as `root`.
+- For full coverage: a user account to log in with, and a second display for
+  the multi-display cases.
 
 ### 2.2 Test host
 
-A Linux machine on the same LAN as the DUT with:
+A Linux machine (with the ChromeOS SDK / `tast` command for the on-device
+suite) on the same LAN as the DUT:
 
 | Tool | Needed for | Required? |
 |---|---|---|
-| `bash`, `ssh`, `curl`, `openssl` | all scripts | yes |
+| `tast` (ChromeOS SDK) | on-device `vnc.*` suite | for the Tast tests |
+| `bash`, `ssh` | shell suite | yes |
 | `python3` (3.8+) | RFB protocol client | yes |
-| `sshpass` | non-interactive SSH with password | recommended |
-| `avahi-browse` (package `avahi-utils`) | mDNS discovery check | optional |
+| `avahi-browse` (package `avahi-utils`) | mDNS propagation check | optional |
+| `sshpass` | non-interactive SSH with password | optional |
 | TigerVNC (or another VeNCrypt-capable viewer) | manual cases | for manual tests |
 
 No third-party Python packages are needed — the bundled RFB client
@@ -64,13 +72,14 @@ No third-party Python packages are needed — the bundled RFB client
 
 ### 2.3 Configuration
 
-Edit `tests/env.sh` (or export the variables) to point at your DUT:
+For the shell suite, edit `tests/env.sh` (or export the variables) to point at
+your DUT:
 
 ```bash
 DEVICE_IP=…            # DUT LAN address
 DEVICE_SSH_PORT=…      # SSH port
 DEVICE_USER=root
-DEVICE_PASSWORD=…      # or use SSH keys
+DEVICE_PASSWORD=…      # or set DEVICE_SSH_KEY=/path/to/key
 VNC_PORT=5900
 NOVNC_PORT=6080
 ```
@@ -79,48 +88,62 @@ NOVNC_PORT=6080
 
 ## 3. Automated tests
 
-### 3.1 Running
+### 3.1 On-device suite (Tast) — primary functional coverage
+
+The `vnc.*` tests run on the device and are the primary automated coverage.
+Run the whole set against a test-image DUT:
+
+```bash
+tast run <dut-ip>[:ssh-port] 'vnc.*'
+```
+
+Results, per-test logs, and failure screenshots are collected by Tast in its
+results directory. The tests are state-safe: each restores a clean, no-password
+state, and the session-transition test restores the login screen.
+
+| Test | What it verifies |
+|---|---|
+| `vnc.Lifecycle` | Both system jobs running; daemon sandboxed as the `fydeos-vnc` user; state dir permissions; D-Bus name owned; automatic respawn after a kill and D-Bus re-claim |
+| `vnc.DBusAPI` | `GetStatus` fields; enable/disable round-trip closes/opens the RFB port; `StatusChanged` signal; `ListDisplays` JSON; typed error for a bogus `SetCaptureDisplay`; password files (mode 0600, bcrypt); `RegenerateCertificate` |
+| `vnc.NetworkBinding` | Bound address is a real, up LAN interface (RFC-1918/link-local); RFB + noVNC listeners; teardown on disable and restore on enable; avahi mDNS registration |
+| `vnc.TLSCertificate` | cert/key modes; RSA-4096 self-signed; fingerprint identical across D-Bus and the RFB wire; TLS 1.1 rejected / 1.2 accepted; regeneration is live without restart |
+| `vnc.AuthMatrix` | LAN offers only VeNCrypt (X509None without password, X509Plain with); wrong password rejected; changes effective immediately; loopback SecTypeNone / VeNCrypt Plain; insecure-mode VncAuth (DES) |
+| `vnc.CaptureKMS` | Pre-login KMS path: KMS mode, width padded to ×4, a decodable non-blank frame |
+| `vnc.CaptureChrome` | Post-login FrameSink path: a solid-colour page is reproduced in the captured framebuffer (closed loop) |
+| `vnc.InputInjection` | RFB pointer and key events injected over the wire produce the expected reaction in the Chrome session |
+| `vnc.Settings` | The os-settings VNC card drives the daemon: enable toggle round-trip, fingerprint display matches D-Bus, certificate regeneration |
+| `vnc.NoVNCWeb` | noVNC page served over HTTPS with the daemon certificate; plain HTTP handled per policy; websockify backend and WebSocket upgrade |
+| `vnc.SessionTransition` | KMS (pre-login) → FrameSink (login) → KMS (logout) with the daemon never dropping and frames served throughout |
+| `vnc.MultiDisplay` | Display inventory; switching the captured display changes the framebuffer to that display's geometry and back; unknown-id error path (switching checks skip with one display) |
+| `vnc.Performance` | Daemon CPU idle (< 1% target) and while a viewer streams; reported to the perf pipeline |
+
+### 3.2 External-observer suite (shell)
+
+These need a separate host on the DUT's LAN; they complement, not duplicate,
+the Tast tests.
 
 ```bash
 cd tests
-./run_all.sh                 # all non-destructive tests
-./run_all.sh t05 t06         # a subset
-FORCE=1 ./run_all.sh         # also run T09 (logs the device user out!)
+./run_all.sh            # x01 + x02 + x03
+./run_all.sh x02        # a subset
 ```
 
-Each script prints `[PASS]` / `[FAIL]` / `[WARN]` / `[SKIP]` per check and a
-summary line. `run_all.sh` prints a combined report and stores logs,
-screenshots, and `results.txt` under `tests/artifacts/`.
+Each check prints `[PASS]`/`[FAIL]`/`[WARN]`/`[SKIP]`; `run_all.sh` prints a
+combined report under `tests/artifacts/`.
 
-- **FAIL** — a functional requirement was violated; file a bug with the log.
-- **WARN** — a soft target missed or an environment-dependent check; verify
-  manually before filing.
-- **SKIP** — preconditions not met (e.g. no user session, missing tool).
+| Script | What it verifies |
+|---|---|
+| `x01_discovery.sh` | mDNS `_rfb._tcp` "FydeOS VNC" record is visible to other hosts on the LAN; RFB/noVNC ports reachable from another machine |
+| `x02_multiclient.sh` | Several viewers connect at once — each completes a handshake and frame grab — and the daemon stays healthy afterwards |
+| `x03_performance.sh` | Host-side full-frame round-trip (connect+TLS+auth+first frame) and the update throughput/fps a viewer observes over the wire |
 
-The suite is state-safe: tests that change passwords or certificates restore a
-clean, no-password state before exiting. Exception: T04 rotates the TLS
-certificate (clients that pinned the old fingerprint must re-verify), and T09
-(opt-in) ends the user session.
-
-### 3.2 Test scripts
-
-| Script | Title | What it verifies |
-|---|---|---|
-| `t01_service_lifecycle.sh` | Service lifecycle | Both system jobs running; daemon sandboxed as the `fydeos-vnc` user; D-Bus name owned; state dir permissions; automatic respawn after a kill; D-Bus name re-claimed after respawn |
-| `t02_dbus_api.sh` | D-Bus API | `GetStatus` field validity; enable/disable round-trip closes/opens the RFB port; `ListDisplays` returns valid JSON; typed error for bogus `SetCaptureDisplay`; `SetPassword`/`SetInsecurePassword`/`Clear*` create and remove the right files with mode 0600 and bcrypt format; `RegenerateCertificate` returns a fingerprint |
-| `t03_network_binding.sh` | Network binding & discovery | RFB listener on LAN + loopback; web port listening; bound address is RFC-1918/link-local (never public); listener teardown on disable and restore on enable; mDNS `_rfb._tcp` announcement |
-| `t04_tls_certificate.sh` | TLS & certificate | cert/key present with correct modes and owner; RSA-4096, CN = hostname; fingerprint identical across D-Bus, on-disk cert, RFB wire, and web port; TLS 1.1 rejected / 1.2 accepted; regeneration changes the fingerprint and is live without restart |
-| `t05_authentication.sh` | Authentication matrix | LAN offers only VeNCrypt (no plaintext types); X509None without password, X509Plain with password; wrong password rejected, password changes effective immediately; loopback offers SecTypeNone (no password) / VeNCrypt Plain (password); insecure mode adds working VncAuth (DES) and rejects wrong passwords |
-| `t06_capture.sh` | Capture pipeline | Valid geometry, width padded to ×4; geometry matches the captured display; frame content is real (not blank); reconnect after disconnect works (idle pause/resume); continuous incremental update stream is healthy, fps reported |
-| `t07_input.sh` | Input injection | Server accepts pointer/click/right-click/wheel/key/cut-text without dropping the session; pre-login: virtual keyboard+pointer devices exist on the DUT; in-session: an injected Search key visibly toggles the launcher (screenshot diff) |
-| `t08_multidisplay.sh` | Multi-display | Display inventory; switching the captured display changes the framebuffer to that display's geometry, for every display; `0` returns to primary; unknown id gives the documented error; correct refusal pre-login |
-| `t09_session_transition.sh` | Session transition (opt-in, destructive) | UI restart (≈ logout/Chrome crash): daemon keeps listening, capture falls back to the login-screen path, fresh clients get real frames; held session behavior recorded |
-| `t10_novnc_web.sh` | noVNC web access | Web client page and assets served over HTTPS; plain HTTP refused; WebSocket upgrade endpoint responds; proxy backend on device loopback is listening |
-| `t11_performance.sh` | Performance sanity | Idle CPU vs < 1% target; streaming CPU vs < 15% target; full-frame grab round-trip time (informative) |
+`x01`'s discovery and reachability checks need a real LAN path; behind NAT they
+warn. `x02`/`x03` tunnel the VNC ports automatically when the device is not
+directly routable (tunnelled numbers include SSH overhead).
 
 ### 3.3 The RFB test client
 
-`lib/vncrfb.py` is also useful interactively when reproducing bugs:
+`lib/vncrfb.py` is useful interactively when reproducing bugs:
 
 ```bash
 python3 lib/vncrfb.py --host <DUT_IP> sectypes                  # advertised auth
@@ -228,8 +251,8 @@ panel).
 
 **M-DSP-1 — Display selection experience**
 Precondition: two displays connected, logged in.
-1. Using the display-selection interface (or the automated switch in T08),
-   view each display in turn.
+1. Using the display-selection interface (or the automated switch in
+   `vnc.MultiDisplay`), view each display in turn.
    Expected: correct image on each; input lands on the display being viewed;
    geometry changes are handled by the viewer without artifacts.
 
@@ -317,45 +340,49 @@ On an idle LAN, with one viewer at native resolution:
 
 | Function | Automated | Manual |
 |---|---|---|
-| Service start/stop/respawn/sandbox | T01 | — |
-| Settings toggle & status | T02 (D-Bus level) | M-SET-1 |
-| Enable/disable listener lifecycle | T02, T03 | M-SET-1 |
-| TLS mandatory, cert, fingerprint | T04, T05 | M-SET-2, M-SEC-2 |
-| Certificate regeneration | T02, T04 | M-SET-4 |
-| Password auth (bcrypt, live update) | T02, T05 | M-SET-3 |
-| Insecure-client mode (VncAuth/plain) | T05 | M-CLI-1 |
-| Loopback/web auth fast path | T05 | M-WEB-1 |
-| LAN-only binding | T03 | M-NET-2 |
-| mDNS discovery | T03 | M-NET-1 |
-| Pre-login (KMS) capture | T06*, T09 | M-INP-1 |
-| In-session (compositor) capture | T06* | M-PRF-1 |
-| Damage/update stream, fps | T06, T11 | M-PRF-1 |
-| Framebuffer geometry/padding/resize | T06, T08 | M-DSP-1 |
-| Pre-login input (virtual devices) | T07* | M-INP-1 |
-| In-session input (buttons, wheel, keys) | T07* | M-INP-2, M-INP-3 |
+| Service start/stop/respawn/sandbox | `vnc.Lifecycle` | — |
+| Settings toggle & status | `vnc.DBusAPI`, `vnc.Settings` | M-SET-1 |
+| Enable/disable listener lifecycle | `vnc.DBusAPI`, `vnc.NetworkBinding` | M-SET-1 |
+| TLS mandatory, cert, fingerprint | `vnc.TLSCertificate`, `vnc.AuthMatrix` | M-SET-2, M-SEC-2 |
+| Certificate regeneration | `vnc.DBusAPI`, `vnc.TLSCertificate`, `vnc.Settings` | M-SET-4 |
+| Password auth (bcrypt, live update) | `vnc.DBusAPI`, `vnc.AuthMatrix` | M-SET-3 |
+| Insecure-client mode (VncAuth/plain) | `vnc.AuthMatrix` | M-CLI-1 |
+| Loopback/web auth fast path | `vnc.AuthMatrix`, `vnc.NoVNCWeb` | M-WEB-1 |
+| LAN-only binding | `vnc.NetworkBinding` | M-NET-2 |
+| mDNS discovery | `vnc.NetworkBinding` (registration); `x01` (propagation) | M-NET-1 |
+| Pre-login (KMS) capture | `vnc.CaptureKMS`, `vnc.SessionTransition` | M-INP-1 |
+| In-session (compositor) capture | `vnc.CaptureChrome` | M-PRF-1 |
+| Damage/update stream, fps | `vnc.CaptureChrome`, `vnc.Performance`; `x03` | M-PRF-1 |
+| Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` | M-DSP-1 |
+| Pre-login input (virtual devices) | — | M-INP-1 |
+| In-session input (buttons, wheel, keys) | `vnc.InputInjection` | M-INP-2, M-INP-3 |
 | IME / keyboard layout | — | M-INP-3 |
-| Clipboard (legacy + extended) | T07 (accept only) | M-CLP-1 |
-| Multi-display enumeration/switch | T08 | M-DSP-1, M-DSP-2 |
-| Logout/login/crash resilience | T09 | M-SES-1, M-SES-2 |
+| Clipboard (legacy + extended) | — | M-CLP-1 |
+| Multi-display enumeration/switch | `vnc.MultiDisplay` | M-DSP-1, M-DSP-2 |
+| Logout/login/crash resilience | `vnc.SessionTransition` | M-SES-1, M-SES-2 |
 | Suspend/resume | — | M-SES-3 |
-| noVNC web access | T10 | M-WEB-1 |
+| noVNC web access | `vnc.NoVNCWeb`; `x01`, `x03` | M-WEB-1 |
 | OOBE setup screen | — | M-OOBE-1…4 |
-| Client compatibility | protocol level: T05, T06 | M-CLI-1 |
-| CPU / latency targets | T11 | M-PRF-1 |
+| Concurrent viewers | `x02` | M-CLI-1 |
+| Client compatibility | protocol level: `vnc.AuthMatrix`, `vnc.CaptureChrome` | M-CLI-1 |
+| CPU targets | `vnc.Performance` | M-PRF-1 |
+| Host-side latency/throughput | `x03` | M-PRF-1 |
 | Auth abuse resilience | — | M-SEC-1 |
 
-\* T06/T07 automatically adapt to the DUT's current state: run them once at
-the login screen and once logged in to cover both capture/input paths.
+Notes:
+- Pre-login input, IME/layout, clipboard, suspend/resume, and the OOBE setup
+  screen are verified manually. The OOBE screen only appears when a VNC client
+  is connected as OOBE finishes, so it is exercised through M-OOBE, not the
+  automated suite.
 
 ---
 
 ## 6. Recommended test passes
 
-- **Smoke (≈5 min, automated)**: `./run_all.sh t01 t02 t06` — service up,
-  API sane, pixels flowing.
-- **Full automated (≈15 min)**: `./run_all.sh` logged in, then again at the
-  login screen (covers both capture/input backends), plus `FORCE=1 ./run_all.sh
-  t09` when the session may be sacrificed.
-- **Release regression**: full automated pass + all manual cases in
-  section 4, including the client matrix and OOBE cases on a freshly reset
-  device.
+- **Smoke (automated, ≈4 min)**: `tast run <dut> 'vnc.Lifecycle vnc.DBusAPI
+  vnc.CaptureKMS'` — service up, API sane, pixels flowing.
+- **Full automated (≈10 min)**: `tast run <dut> 'vnc.*'` on a test-image DUT
+  (attach a second display for the multi-display switching checks), then
+  `./run_all.sh` from a host on the DUT's LAN for the external checks.
+- **Release regression**: full automated pass + all manual cases in section 4,
+  including the client matrix and the OOBE cases on a freshly reset device.

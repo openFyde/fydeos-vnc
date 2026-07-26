@@ -1,15 +1,17 @@
 # FydeOS VNC — 测试文档
 
-本文档说明如何测试 FydeOS VNC 远程访问功能，包含两种互补的测试方法：
+本文档说明如何测试 FydeOS VNC 远程访问功能，包含三种互补的测试方法：
 
-- **自动化测试** —— 随本文档一同提供的脚本套件（位于 `tests/` 目录），覆盖
-  守护进程的全部对外接口：D-Bus 控制 API、RFB/VeNCrypt 协议、TLS、认证、
-  画面捕获、输入注入、多显示器、noVNC 网页访问以及性能。
+- **设备端自动化测试（Tast）** —— `vnc.*` 测试在设备上运行，端到端覆盖
+  守护进程：D-Bus 控制 API、RFB/VeNCrypt 协议、TLS、认证、画面捕获、
+  输入注入、设置界面、多显示器、noVNC 网页访问、会话切换以及 CPU。
+- **外部观察者测试（shell 套件）** —— 一小组只有从 DUT 所在局域网的另一台
+  主机才有意义的检查：mDNS 传播、并发查看器、主机侧性能。
 - **手动测试** —— 需要人工在屏幕前操作或使用真实 VNC 客户端的用例：
   设置界面、OOBE 流程、输入手感、剪贴板、输入法、会话切换、客户端兼容性。
 
-自动化用例（T01–T11）与手动用例（M-\*）合在一起覆盖全部 VNC 功能。
-第 5 节的覆盖矩阵列出了每个功能与用例的对应关系。
+`vnc.*` Tast 测试、`x0*` shell 检查与手动用例（M-\*）合在一起覆盖全部
+VNC 功能。第 5 节的覆盖矩阵列出了每个功能与用例的对应关系。
 
 ---
 
@@ -39,21 +41,23 @@ FydeOS VNC 允许同一局域网内任何符合标准的 VNC 客户端查看并�
 ### 2.1 被测设备（DUT）
 
 - 安装了 VNC 功能的 FydeOS 设备，可通过局域网访问。
-- 以 `root` 身份的 SSH 访问（开发者模式）——自动化套件需要用它调用
-  D-Bus API 并检查设备状态。
-- 若要完整覆盖：需要一个可登录的用户账号，以及（可选）第二台显示器用于
-  多显示器用例。
+- 设备端 Tast 测试需要 **test image**（自带 Tast 测试运行器与 `chrome`
+  测试支持）。外部 shell 检查在任何带 VNC 功能且可 `root` SSH 的镜像上均可运行。
+- 以 `root` 身份的 SSH 访问。
+- 若要完整覆盖：需要一个可登录的用户账号，以及一台第二显示器用于多显示器用例。
 
 ### 2.2 测试主机
 
-与 DUT 同一局域网内的 Linux 机器，需具备：
+与 DUT 同一局域网内的 Linux 机器（运行设备端套件还需 ChromeOS SDK 的
+`tast` 命令）：
 
 | 工具 | 用途 | 是否必需 |
 |---|---|---|
-| `bash`、`ssh`、`curl`、`openssl` | 所有脚本 | 必需 |
+| `tast`（ChromeOS SDK） | 设备端 `vnc.*` 套件 | Tast 测试需要 |
+| `bash`、`ssh` | shell 套件 | 必需 |
 | `python3`（3.8+） | RFB 协议客户端 | 必需 |
-| `sshpass` | 免交互的密码 SSH | 推荐 |
-| `avahi-browse`（`avahi-utils` 包） | mDNS 发现检查 | 可选 |
+| `avahi-browse`（`avahi-utils` 包） | mDNS 传播检查 | 可选 |
+| `sshpass` | 免交互的密码 SSH | 可选 |
 | TigerVNC（或其他支持 VeNCrypt 的查看器） | 手动用例 | 手动测试需要 |
 
 无需任何第三方 Python 包 —— 随附的 RFB 客户端（`lib/vncrfb.py`）只使用
@@ -61,60 +65,75 @@ FydeOS VNC 允许同一局域网内任何符合标准的 VNC 客户端查看并�
 
 ### 2.3 配置
 
-编辑 `tests/env.sh`（或导出同名环境变量）指向你的 DUT：
+运行 shell 套件时，编辑 `tests/env.sh`（或导出同名环境变量）指向你的 DUT：
 
 ```bash
 DEVICE_IP=…            # DUT 地址
 DEVICE_SSH_PORT=…      # SSH 端口
 DEVICE_USER=root
-DEVICE_PASSWORD=…      # 或改用 SSH 密钥
+DEVICE_PASSWORD=…      # 或设置 DEVICE_SSH_KEY=/path/to/key
 VNC_PORT=5900
 NOVNC_PORT=6080
 ```
 
-> 说明：若 DUT 位于 NAT / 端口转发之后（只有 SSH 端口可达），套件会自动
-> 改走 SSH 隧道访问 VNC 端口，无需额外配置。
+> 说明：若 DUT 位于 NAT / 端口转发之后（只有 SSH 端口可达），`x02`/`x03`
+> 会自动改走 SSH 隧道访问 VNC 端口；`x01` 的发现/可达性检查需要真实的
+> 局域网路径，否则会给出 WARN。
 
 ---
 
 ## 3. 自动化测试
 
-### 3.1 运行方式
+### 3.1 设备端套件（Tast）—— 主要功能覆盖
+
+`vnc.*` 测试在设备上运行，是主要的自动化覆盖。对一台 test-image 的 DUT
+运行整套：
+
+```bash
+tast run <dut-ip>[:ssh-port] 'vnc.*'
+```
+
+结果、每条测试的日志与失败截图由 Tast 收集到其结果目录中。测试对设备
+状态是安全的：每条都会恢复无密码的干净状态，会话切换测试会恢复登录屏。
+
+| 测试 | 验证内容 |
+|---|---|
+| `vnc.Lifecycle` | 两个系统服务均在运行；守护进程以 `fydeos-vnc` 用户沙箱化运行；状态目录权限；持有 D-Bus 名称；强杀后自动重启并重新持有 D-Bus 名称 |
+| `vnc.DBusAPI` | `GetStatus` 字段；开关往返会关闭/打开 RFB 端口；`StatusChanged` 信号；`ListDisplays` JSON；非法 `SetCaptureDisplay` 返回带类型的错误；密码文件（0600、bcrypt）；`RegenerateCertificate` |
+| `vnc.NetworkBinding` | 绑定地址为真实、在线的局域网接口（RFC-1918/链路本地）；RFB + noVNC 监听；关闭时撤销、开启时恢复；avahi mDNS 注册 |
+| `vnc.TLSCertificate` | 证书/私钥权限；RSA-4096 自签名；D-Bus 与 RFB 线上指纹一致；拒绝 TLS 1.1、接受 1.2；重新生成无需重启即生效 |
+| `vnc.AuthMatrix` | 局域网只提供 VeNCrypt（无密码 X509None、有密码 X509Plain）；错误密码被拒；改密码立即生效；回环 SecTypeNone / VeNCrypt Plain；不安全模式 VncAuth（DES） |
+| `vnc.CaptureKMS` | 登录前 KMS 路径：KMS 模式、宽度按 4 对齐、可解码且非空白的帧 |
+| `vnc.CaptureChrome` | 登录后 FrameSink 路径：纯色页面在捕获的帧缓冲中被还原（闭环） |
+| `vnc.InputInjection` | 经线路注入的 RFB 指针与按键事件在 Chrome 会话中产生预期反应 |
+| `vnc.Settings` | os-settings VNC 卡片驱动守护进程：开关往返、指纹显示与 D-Bus 一致、证书重新生成 |
+| `vnc.NoVNCWeb` | 以守护进程证书通过 HTTPS 提供 noVNC 页面；按策略处理明文 HTTP；websockify 后端与 WebSocket 升级 |
+| `vnc.SessionTransition` | KMS（登录前）→ FrameSink（登录）→ KMS（登出），守护进程全程不掉线且持续提供画面 |
+| `vnc.MultiDisplay` | 显示器清单；切换捕获显示器后帧缓冲变为该显示器几何尺寸并可切回；未知 id 错误路径（仅一台显示器时跳过切换检查） |
+| `vnc.Performance` | 守护进程 CPU 空闲（< 1% 指标）与查看器串流时的占用；上报到 perf 管线 |
+
+### 3.2 外部观察者套件（shell）
+
+这些检查需要 DUT 所在局域网内的另一台主机；它们是对 Tast 测试的补充，
+而非重复。
 
 ```bash
 cd tests
-./run_all.sh                 # 运行全部非破坏性测试
-./run_all.sh t05 t06         # 只运行子集
-FORCE=1 ./run_all.sh         # 同时运行 T09（会把设备上的用户登出！）
+./run_all.sh            # x01 + x02 + x03
+./run_all.sh x02        # 只运行子集
 ```
 
-每个脚本对每项检查输出 `[PASS]` / `[FAIL]` / `[WARN]` / `[SKIP]` 及汇总行。
-`run_all.sh` 输出合并报告，并把日志、截图和 `results.txt` 存到
-`tests/artifacts/` 下。
+每项检查输出 `[PASS]`/`[FAIL]`/`[WARN]`/`[SKIP]`；`run_all.sh` 在
+`tests/artifacts/` 下输出合并报告。
 
-- **FAIL** —— 违反了功能要求；请附日志提交缺陷。
-- **WARN** —— 未达到软性指标，或该检查依赖环境；提交缺陷前请先人工确认。
-- **SKIP** —— 前置条件不满足（如无用户会话、缺少工具）。
+| 脚本 | 验证内容 |
+|---|---|
+| `x01_discovery.sh` | mDNS `_rfb._tcp` "FydeOS VNC" 记录对局域网内其他主机可见；RFB/noVNC 端口可从另一台机器访问 |
+| `x02_multiclient.sh` | 多个查看器同时连接 —— 各自完成握手与抓帧 —— 之后守护进程仍健康 |
+| `x03_performance.sh` | 主机侧整帧往返（连接+TLS+认证+首帧）以及查看器在线路上观察到的更新吞吐/帧率 |
 
-套件对设备状态是安全的：修改过密码或证书的测试会在退出前恢复为无密码的
-干净状态。例外：T04 会轮换 TLS 证书（固定了旧指纹的客户端需重新确认），
-T09（需显式开启）会结束用户会话。
-
-### 3.2 测试脚本
-
-| 脚本 | 标题 | 验证内容 |
-|---|---|---|
-| `t01_service_lifecycle.sh` | 服务生命周期 | 两个系统服务均在运行；守护进程以 `fydeos-vnc` 用户沙箱化运行；持有 D-Bus 名称；状态目录权限正确;强杀后自动重启；重启后重新持有 D-Bus 名称 |
-| `t02_dbus_api.sh` | D-Bus API | `GetStatus` 字段合法性；开关往返会关闭/打开 RFB 端口；`ListDisplays` 返回合法 JSON；非法 `SetCaptureDisplay` 返回带类型的错误；`SetPassword`/`SetInsecurePassword`/`Clear*` 以 0600 权限和 bcrypt 格式正确创建/删除对应文件；`RegenerateCertificate` 返回指纹 |
-| `t03_network_binding.sh` | 网络绑定与发现 | RFB 在局域网地址 + 回环地址监听；网页端口监听；绑定地址必须是 RFC-1918/链路本地（绝不能是公网地址）；关闭时撤销监听、开启时恢复；mDNS `_rfb._tcp` 公告 |
-| `t04_tls_certificate.sh` | TLS 与证书 | 证书/私钥存在且权限、属主正确；RSA-4096、CN 为主机名；D-Bus、磁盘证书、RFB 线上、网页端口四处指纹一致；拒绝 TLS 1.1、接受 1.2；重新生成证书后指纹变化且无需重启即生效 |
-| `t05_authentication.sh` | 认证矩阵 | 局域网只提供 VeNCrypt（无明文类型）；无密码时 X509None、有密码时 X509Plain；错误密码被拒；改密码立即生效；回环无密码为 SecTypeNone、有密码为 VeNCrypt Plain；不安全模式增加可用的 VncAuth（DES）且错误密码仍被拒 |
-| `t06_capture.sh` | 捕获管线 | 几何尺寸合法、宽度按 4 对齐；尺寸与当前捕获的显示器一致；帧内容真实（非空白）；断开后再次连接正常（空闲暂停/恢复）；增量更新流健康并报告帧率 |
-| `t07_input.sh` | 输入注入 | 服务器接受指针/点击/右键/滚轮/按键/剪贴板消息且不断开会话；登录前：设备上存在虚拟键盘+指针设备；登录后：注入 Search 键可见地打开启动器（截图对比） |
-| `t08_multidisplay.sh` | 多显示器 | 显示器清单；切换捕获显示器后帧缓冲变为该显示器的几何尺寸（逐台验证）；`0` 返回主显示器；未知 id 返回文档规定的错误；登录前正确拒绝 |
-| `t09_session_transition.sh` | 会话切换（需显式开启，破坏性） | 重启 UI（≈登出/Chrome 崩溃）：守护进程保持监听、捕获回落到登录屏路径、新客户端能取得真实画面；跨切换保持的客户端行为被记录 |
-| `t10_novnc_web.sh` | noVNC 网页访问 | 通过 HTTPS 提供网页客户端页面及资源；WebSocket 升级端点有响应；设备回环上的代理后端在监听 |
-| `t11_performance.sh` | 性能抽查 | 空闲 CPU 对照 < 1% 指标；串流 CPU 对照 < 15% 指标；整帧抓取往返耗时（参考值） |
+`x01` 的发现与可达性检查需要真实的局域网路径，在 NAT 之后会 WARN。
+`x02`/`x03` 在设备不可直连时会自动建立隧道（隧道数值含 SSH 开销）。
 
 ### 3.3 RFB 测试客户端
 
@@ -217,7 +236,8 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 
 **M-DSP-1 —— 显示器选择体验**
 前置条件：接入两台显示器，已登录。
-1. 通过显示器选择接口（或 T08 的自动切换）依次查看每台显示器。
+1. 通过显示器选择接口（或 `vnc.MultiDisplay` 的自动切换）依次查看每台
+   显示器。
    预期：每台显示器画面正确；输入落在正在查看的显示器上；几何尺寸变化
    由查看器正常处理、无花屏。
 
@@ -294,44 +314,48 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 
 | 功能 | 自动化 | 手动 |
 |---|---|---|
-| 服务启动/停止/自动重启/沙箱 | T01 | — |
-| 设置开关与状态 | T02（D-Bus 层） | M-SET-1 |
-| 开关对监听器的生命周期控制 | T02、T03 | M-SET-1 |
-| 强制 TLS、证书、指纹 | T04、T05 | M-SET-2、M-SEC-2 |
-| 证书重新生成 | T02、T04 | M-SET-4 |
-| 密码认证（bcrypt、实时生效） | T02、T05 | M-SET-3 |
-| 不安全客户端模式（VncAuth/明文） | T05 | M-CLI-1 |
-| 回环/网页认证快速通道 | T05 | M-WEB-1 |
-| 仅绑定局域网 | T03 | M-NET-2 |
-| mDNS 发现 | T03 | M-NET-1 |
-| 登录前（KMS）捕获 | T06\*、T09 | M-INP-1 |
-| 登录后（合成器）捕获 | T06\* | M-PRF-1 |
-| 增量更新流、帧率 | T06、T11 | M-PRF-1 |
-| 帧缓冲几何/对齐/尺寸变化 | T06、T08 | M-DSP-1 |
-| 登录前输入（虚拟设备） | T07\* | M-INP-1 |
-| 登录后输入（按键、滚轮、键盘） | T07\* | M-INP-2、M-INP-3 |
+| 服务启动/停止/自动重启/沙箱 | `vnc.Lifecycle` | — |
+| 设置开关与状态 | `vnc.DBusAPI`、`vnc.Settings` | M-SET-1 |
+| 开关对监听器的生命周期控制 | `vnc.DBusAPI`、`vnc.NetworkBinding` | M-SET-1 |
+| 强制 TLS、证书、指纹 | `vnc.TLSCertificate`、`vnc.AuthMatrix` | M-SET-2、M-SEC-2 |
+| 证书重新生成 | `vnc.DBusAPI`、`vnc.TLSCertificate`、`vnc.Settings` | M-SET-4 |
+| 密码认证（bcrypt、实时生效） | `vnc.DBusAPI`、`vnc.AuthMatrix` | M-SET-3 |
+| 不安全客户端模式（VncAuth/明文） | `vnc.AuthMatrix` | M-CLI-1 |
+| 回环/网页认证快速通道 | `vnc.AuthMatrix`、`vnc.NoVNCWeb` | M-WEB-1 |
+| 仅绑定局域网 | `vnc.NetworkBinding` | M-NET-2 |
+| mDNS 发现 | `vnc.NetworkBinding`（注册）；`x01`（传播） | M-NET-1 |
+| 登录前（KMS）捕获 | `vnc.CaptureKMS`、`vnc.SessionTransition` | M-INP-1 |
+| 登录后（合成器）捕获 | `vnc.CaptureChrome` | M-PRF-1 |
+| 增量更新流、帧率 | `vnc.CaptureChrome`、`vnc.Performance`；`x03` | M-PRF-1 |
+| 帧缓冲几何/对齐/尺寸变化 | `vnc.CaptureKMS`、`vnc.MultiDisplay` | M-DSP-1 |
+| 登录前输入（虚拟设备） | — | M-INP-1 |
+| 登录后输入（按键、滚轮、键盘） | `vnc.InputInjection` | M-INP-2、M-INP-3 |
 | 输入法 / 键盘布局 | — | M-INP-3 |
-| 剪贴板（传统 + 扩展） | T07（仅接受性） | M-CLP-1 |
-| 多显示器枚举/切换 | T08 | M-DSP-1、M-DSP-2 |
-| 登出/登录/崩溃健壮性 | T09 | M-SES-1、M-SES-2 |
+| 剪贴板（传统 + 扩展） | — | M-CLP-1 |
+| 多显示器枚举/切换 | `vnc.MultiDisplay` | M-DSP-1、M-DSP-2 |
+| 登出/登录/崩溃健壮性 | `vnc.SessionTransition` | M-SES-1、M-SES-2 |
 | 休眠/唤醒 | — | M-SES-3 |
-| noVNC 网页访问 | T10 | M-WEB-1 |
+| noVNC 网页访问 | `vnc.NoVNCWeb`；`x01`、`x03` | M-WEB-1 |
 | OOBE 设置屏 | — | M-OOBE-1…4 |
-| 客户端兼容性 | 协议层：T05、T06 | M-CLI-1 |
-| CPU / 延迟指标 | T11 | M-PRF-1 |
+| 并发查看器 | `x02` | M-CLI-1 |
+| 客户端兼容性 | 协议层：`vnc.AuthMatrix`、`vnc.CaptureChrome` | M-CLI-1 |
+| CPU 指标 | `vnc.Performance` | M-PRF-1 |
+| 主机侧延迟/吞吐 | `x03` | M-PRF-1 |
 | 认证滥用防护 | — | M-SEC-1 |
 
-\* T06/T07 会自动适配 DUT 的当前状态：在登录屏和登录后各运行一次，即可
-覆盖两条捕获/输入路径。
+说明：
+- 登录前输入、输入法/布局、剪贴板、休眠/唤醒以及 OOBE 设置屏通过手动
+  验证。OOBE 设置屏仅在 OOBE 结束时有 VNC 客户端连接的情况下才出现，
+  因此由 M-OOBE 覆盖，而非自动化套件。
 
 ---
 
 ## 6. 建议的测试轮次
 
-- **冒烟测试（约 5 分钟，自动化）**：`./run_all.sh t01 t02 t06` ——
-  服务在线、API 正常、画面可达。
-- **完整自动化（约 15 分钟）**：登录状态下运行 `./run_all.sh`，再在登录屏
-  运行一次（覆盖两条捕获/输入路径）；在允许牺牲当前会话时追加
-  `FORCE=1 ./run_all.sh t09`。
+- **冒烟测试（约 4 分钟，自动化）**：`tast run <dut> 'vnc.Lifecycle
+  vnc.DBusAPI vnc.CaptureKMS'` —— 服务在线、API 正常、画面可达。
+- **完整自动化（约 10 分钟）**：对 test-image 的 DUT 运行
+  `tast run <dut> 'vnc.*'`（多显示器切换检查需接入第二显示器），再从
+  DUT 所在局域网的主机运行 `./run_all.sh` 完成外部检查。
 - **版本回归**：完整自动化 + 第 4 节全部手动用例，包括客户端矩阵与在
   恢复出厂设备上的 OOBE 用例。

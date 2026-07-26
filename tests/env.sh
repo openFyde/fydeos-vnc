@@ -8,6 +8,9 @@ DEVICE_USER="${DEVICE_USER:-root}"
 # Password for SSH (used via sshpass when installed; otherwise set up an SSH
 # key or expect interactive prompts).
 DEVICE_PASSWORD="${DEVICE_PASSWORD:-}"
+# Optional SSH private key. Test images accept the standard testing key
+# (chromite/ssh_keys/testing_rsa); copy it somewhere 0600 and point here.
+DEVICE_SSH_KEY="${DEVICE_SSH_KEY:-}"
 
 # RFB / web ports as configured on the device
 VNC_PORT="${VNC_PORT:-5900}"

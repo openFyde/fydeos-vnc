@@ -39,6 +39,7 @@ assert_not_contains() {
 # SSH to the device. Uses sshpass if available and DEVICE_PASSWORD is set.
 SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           -o ConnectTimeout=10 -o LogLevel=ERROR -p "$DEVICE_SSH_PORT")
+[[ -n "${DEVICE_SSH_KEY:-}" ]] && SSH_OPTS+=(-o IdentitiesOnly=yes -i "$DEVICE_SSH_KEY")
 dssh() {
   if command -v sshpass >/dev/null 2>&1 && [[ -n "$DEVICE_PASSWORD" ]]; then
     sshpass -p "$DEVICE_PASSWORD" ssh "${SSH_OPTS[@]}" \
