@@ -111,6 +111,14 @@ tast run <dut-ip>[:ssh-port] 'vnc.*'
 | `vnc.SessionTransition` | KMS（登录前）→ FrameSink（登录）→ KMS（登出），守护进程全程不掉线且持续提供画面 |
 | `vnc.MultiDisplay` | 显示器清单；切换捕获显示器后帧缓冲变为该显示器几何尺寸并可切回；未知 id 错误路径（仅一台显示器时跳过切换检查） |
 | `vnc.Performance` | 守护进程 CPU 空闲（< 1% 指标）与查看器串流时的占用；上报到 perf 管线 |
+| `vnc.InputParity` | 经 RFB 注入的右键弹出上下文菜单、中键打开新标签页、滚轮滚动 |
+| `vnc.Clipboard` | 查看器的 RFB cut-text 被粘贴进聚焦的输入框（设备→查看器方向未接线） |
+| `vnc.AuthAbuse` | 反复错误密码均被拒且守护进程保持健康（未实现按 IP 退避） |
+| `vnc.SettingsPassword` | 经 os-settings 密码对话框设置密码后守护进程要求密码 |
+| `vnc.LockScreen` | 会话锁定期间守护进程仍在提供锁屏画面 |
+| `vnc.NoVNCSession` | 内置 noVNC 网页客户端在浏览器标签页中连接并渲染桌面 |
+| `vnc.RebootPersistence` | *(主机驱动)* 启用状态（Chrome pref）跨重启保持 |
+| `vnc.SuspendResume` | *(主机驱动)* 休眠/唤醒一轮后守护进程仍在提供服务 |
 
 ### 3.2 外部观察者套件（shell）
 
@@ -319,7 +327,7 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 | 开关对监听器的生命周期控制 | `vnc.DBusAPI`、`vnc.NetworkBinding` | M-SET-1 |
 | 强制 TLS、证书、指纹 | `vnc.TLSCertificate`、`vnc.AuthMatrix` | M-SET-2、M-SEC-2 |
 | 证书重新生成 | `vnc.DBusAPI`、`vnc.TLSCertificate`、`vnc.Settings` | M-SET-4 |
-| 密码认证（bcrypt、实时生效） | `vnc.DBusAPI`、`vnc.AuthMatrix` | M-SET-3 |
+| 密码认证（bcrypt、实时生效） | `vnc.DBusAPI`、`vnc.AuthMatrix`、`vnc.SettingsPassword` | — |
 | 不安全客户端模式（VncAuth/明文） | `vnc.AuthMatrix` | M-CLI-1 |
 | 回环/网页认证快速通道 | `vnc.AuthMatrix`、`vnc.NoVNCWeb` | M-WEB-1 |
 | 仅绑定局域网 | `vnc.NetworkBinding` | M-NET-2 |
@@ -329,24 +337,29 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 | 增量更新流、帧率 | `vnc.CaptureChrome`、`vnc.Performance`；`x03` | M-PRF-1 |
 | 帧缓冲几何/对齐/尺寸变化 | `vnc.CaptureKMS`、`vnc.MultiDisplay` | M-DSP-1 |
 | 登录前输入（虚拟设备） | — | M-INP-1 |
-| 登录后输入（按键、滚轮、键盘） | `vnc.InputInjection` | M-INP-2、M-INP-3 |
+| 登录后输入（按键、滚轮、键盘） | `vnc.InputInjection`、`vnc.InputParity` | M-INP-2（拖拽）、M-INP-3 |
 | 输入法 / 键盘布局 | — | M-INP-3 |
-| 剪贴板（传统 + 扩展） | — | M-CLP-1 |
+| 剪贴板（查看器→设备 粘贴） | `vnc.Clipboard` | M-CLP-1（设备→查看器 推送，未实现） |
 | 多显示器枚举/切换 | `vnc.MultiDisplay` | M-DSP-1、M-DSP-2 |
-| 登出/登录/崩溃健壮性 | `vnc.SessionTransition` | M-SES-1、M-SES-2 |
-| 休眠/唤醒 | — | M-SES-3 |
-| noVNC 网页访问 | `vnc.NoVNCWeb`；`x01`、`x03` | M-WEB-1 |
+| 登出/登录/崩溃健壮性 | `vnc.SessionTransition` | M-SES-1 |
+| 锁屏 | `vnc.LockScreen` | M-SES-2（经 VNC 击键解锁） |
+| 休眠/唤醒 | `vnc.SuspendResume` | — |
+| 重启持久化 | `vnc.RebootPersistence` | — |
+| noVNC 网页访问 | `vnc.NoVNCWeb`、`vnc.NoVNCSession`；`x01`、`x03` | — |
 | OOBE 设置屏 | — | M-OOBE-1…4 |
 | 并发查看器 | `x02` | M-CLI-1 |
 | 客户端兼容性 | 协议层：`vnc.AuthMatrix`、`vnc.CaptureChrome` | M-CLI-1 |
 | CPU 指标 | `vnc.Performance` | M-PRF-1 |
 | 主机侧延迟/吞吐 | `x03` | M-PRF-1 |
-| 认证滥用防护 | — | M-SEC-1 |
+| 认证滥用防护 | `vnc.AuthAbuse` | — |
 
 说明：
-- 登录前输入、输入法/布局、剪贴板、休眠/唤醒以及 OOBE 设置屏通过手动
-  验证。OOBE 设置屏仅在 OOBE 结束时有 VNC 客户端连接的情况下才出现，
-  因此由 M-OOBE 覆盖，而非自动化套件。
+- 仍为手动的项：登录前输入验证（M-INP-1）、输入法/布局（M-INP-3）、指针拖拽
+  （M-INP-2 的一部分）、剪贴板设备→查看器方向（M-CLP-1，守护进程未实现）、
+  专门经 VNC 击键解锁（M-SES-2）、显示器热插拔（M-DSP-2）、网络切换
+  （M-NET-2）、第三方查看器兼容性（M-CLI-1）、主观延迟/画质体验（M-PRF-1）、
+  以及 OOBE 设置屏（M-OOBE-1…4）。OOBE 设置屏仅在 OOBE 结束时有 VNC 客户端
+  连接的情况下才出现，因此由 M-OOBE 覆盖，而非自动化套件。
 
 ---
 

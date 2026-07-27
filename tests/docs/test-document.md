@@ -116,6 +116,14 @@ state, and the session-transition test restores the login screen.
 | `vnc.SessionTransition` | KMS (pre-login) → FrameSink (login) → KMS (logout) with the daemon never dropping and frames served throughout |
 | `vnc.MultiDisplay` | Display inventory; switching the captured display changes the framebuffer to that display's geometry and back; unknown-id error path (switching checks skip with one display) |
 | `vnc.Performance` | Daemon CPU idle (< 1% target) and while a viewer streams; reported to the perf pipeline |
+| `vnc.InputParity` | Right-click opens a context menu, middle-click opens a new tab, and the wheel scrolls — all injected over RFB |
+| `vnc.Clipboard` | A viewer's RFB cut-text is pasted into the focused field (device→viewer push is not wired) |
+| `vnc.AuthAbuse` | Repeated wrong passwords are refused and the daemon stays healthy (no per-IP backoff is implemented) |
+| `vnc.SettingsPassword` | Setting a password through the os-settings dialog makes the daemon require it |
+| `vnc.LockScreen` | The daemon keeps serving the lock screen while the session is locked |
+| `vnc.NoVNCSession` | The built-in noVNC web client connects and renders the desktop in a browser tab |
+| `vnc.RebootPersistence` | *(host-driven)* The enabled state (Chrome pref) persists across a reboot |
+| `vnc.SuspendResume` | *(host-driven)* The daemon keeps serving after a suspend/resume cycle |
 
 ### 3.2 External-observer suite (shell)
 
@@ -345,7 +353,7 @@ On an idle LAN, with one viewer at native resolution:
 | Enable/disable listener lifecycle | `vnc.DBusAPI`, `vnc.NetworkBinding` | M-SET-1 |
 | TLS mandatory, cert, fingerprint | `vnc.TLSCertificate`, `vnc.AuthMatrix` | M-SET-2, M-SEC-2 |
 | Certificate regeneration | `vnc.DBusAPI`, `vnc.TLSCertificate`, `vnc.Settings` | M-SET-4 |
-| Password auth (bcrypt, live update) | `vnc.DBusAPI`, `vnc.AuthMatrix` | M-SET-3 |
+| Password auth (bcrypt, live update) | `vnc.DBusAPI`, `vnc.AuthMatrix`, `vnc.SettingsPassword` | — |
 | Insecure-client mode (VncAuth/plain) | `vnc.AuthMatrix` | M-CLI-1 |
 | Loopback/web auth fast path | `vnc.AuthMatrix`, `vnc.NoVNCWeb` | M-WEB-1 |
 | LAN-only binding | `vnc.NetworkBinding` | M-NET-2 |
@@ -355,25 +363,31 @@ On an idle LAN, with one viewer at native resolution:
 | Damage/update stream, fps | `vnc.CaptureChrome`, `vnc.Performance`; `x03` | M-PRF-1 |
 | Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` | M-DSP-1 |
 | Pre-login input (virtual devices) | — | M-INP-1 |
-| In-session input (buttons, wheel, keys) | `vnc.InputInjection` | M-INP-2, M-INP-3 |
+| In-session input (buttons, wheel, keys) | `vnc.InputInjection`, `vnc.InputParity` | M-INP-2 (drag), M-INP-3 |
 | IME / keyboard layout | — | M-INP-3 |
-| Clipboard (legacy + extended) | — | M-CLP-1 |
+| Clipboard (viewer→device paste) | `vnc.Clipboard` | M-CLP-1 (device→viewer push, not implemented) |
 | Multi-display enumeration/switch | `vnc.MultiDisplay` | M-DSP-1, M-DSP-2 |
-| Logout/login/crash resilience | `vnc.SessionTransition` | M-SES-1, M-SES-2 |
-| Suspend/resume | — | M-SES-3 |
-| noVNC web access | `vnc.NoVNCWeb`; `x01`, `x03` | M-WEB-1 |
+| Logout/login/crash resilience | `vnc.SessionTransition` | M-SES-1 |
+| Lock screen | `vnc.LockScreen` | M-SES-2 (unlock via VNC keystrokes) |
+| Suspend/resume | `vnc.SuspendResume` | — |
+| Reboot persistence | `vnc.RebootPersistence` | — |
+| noVNC web access | `vnc.NoVNCWeb`, `vnc.NoVNCSession`; `x01`, `x03` | — |
 | OOBE setup screen | — | M-OOBE-1…4 |
 | Concurrent viewers | `x02` | M-CLI-1 |
 | Client compatibility | protocol level: `vnc.AuthMatrix`, `vnc.CaptureChrome` | M-CLI-1 |
 | CPU targets | `vnc.Performance` | M-PRF-1 |
 | Host-side latency/throughput | `x03` | M-PRF-1 |
-| Auth abuse resilience | — | M-SEC-1 |
+| Auth abuse resilience | `vnc.AuthAbuse` | — |
 
 Notes:
-- Pre-login input, IME/layout, clipboard, suspend/resume, and the OOBE setup
-  screen are verified manually. The OOBE screen only appears when a VNC client
-  is connected as OOBE finishes, so it is exercised through M-OOBE, not the
-  automated suite.
+- What stays manual: pre-login input verification (M-INP-1), IME/layout
+  (M-INP-3), pointer drag (part of M-INP-2), the device→viewer clipboard
+  direction (M-CLP-1, not implemented in the daemon), unlocking specifically
+  via VNC keystrokes (M-SES-2), display hotplug (M-DSP-2), network change
+  (M-NET-2), client compatibility with third-party viewers (M-CLI-1), the
+  subjective latency/quality feel (M-PRF-1), and the OOBE setup screen
+  (M-OOBE-1…4). The OOBE screen only appears when a VNC client is connected as
+  OOBE finishes, so it is exercised through M-OOBE, not the automated suite.
 
 ---
 
