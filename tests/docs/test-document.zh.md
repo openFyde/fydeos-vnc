@@ -117,6 +117,7 @@ tast run <dut-ip>[:ssh-port] 'vnc.*'
 | `vnc.SettingsPassword` | 经 os-settings 密码对话框设置密码后守护进程要求密码 |
 | `vnc.LockScreen` | 会话锁定期间守护进程仍在提供锁屏画面 |
 | `vnc.NoVNCSession` | 内置 noVNC 网页客户端在浏览器标签页中连接并渲染桌面 |
+| `vnc.DisplayHotplug` | 强制外接显示器连接器断开/接入后守护进程清单更新且采集优雅回落（需外接显示器） |
 | `vnc.RebootPersistence` | *(主机驱动)* 启用状态（Chrome pref）跨重启保持 |
 | `vnc.SuspendResume` | *(主机驱动)* 休眠/唤醒一轮后守护进程仍在提供服务 |
 
@@ -340,7 +341,8 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 | 登录后输入（按键、滚轮、键盘） | `vnc.InputInjection`、`vnc.InputParity` | M-INP-2（拖拽）、M-INP-3 |
 | 输入法 / 键盘布局 | — | M-INP-3 |
 | 剪贴板（查看器→设备 粘贴） | `vnc.Clipboard` | M-CLP-1（设备→查看器 推送，未实现） |
-| 多显示器枚举/切换 | `vnc.MultiDisplay` | M-DSP-1、M-DSP-2 |
+| 多显示器枚举/切换 | `vnc.MultiDisplay` | M-DSP-1 |
+| 显示器热插拔 | `vnc.DisplayHotplug` | — |
 | 登出/登录/崩溃健壮性 | `vnc.SessionTransition` | M-SES-1 |
 | 锁屏 | `vnc.LockScreen` | M-SES-2（经 VNC 击键解锁） |
 | 休眠/唤醒 | `vnc.SuspendResume` | — |
@@ -356,8 +358,8 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 说明：
 - 仍为手动的项：登录前输入验证（M-INP-1）、输入法/布局（M-INP-3）、指针拖拽
   （M-INP-2 的一部分）、剪贴板设备→查看器方向（M-CLP-1，守护进程未实现）、
-  专门经 VNC 击键解锁（M-SES-2）、显示器热插拔（M-DSP-2）、网络切换
-  （M-NET-2）、第三方查看器兼容性（M-CLI-1）、主观延迟/画质体验（M-PRF-1）、
+  专门经 VNC 击键解锁（M-SES-2）、网络切换（M-NET-2）、第三方查看器兼容性
+  （M-CLI-1）、主观延迟/画质体验（M-PRF-1）、
   以及 OOBE 设置屏（M-OOBE-1…4）。OOBE 设置屏仅在 OOBE 结束时有 VNC 客户端
   连接的情况下才出现，因此由 M-OOBE 覆盖，而非自动化套件。
 

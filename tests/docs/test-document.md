@@ -122,6 +122,7 @@ state, and the session-transition test restores the login screen.
 | `vnc.SettingsPassword` | Setting a password through the os-settings dialog makes the daemon require it |
 | `vnc.LockScreen` | The daemon keeps serving the lock screen while the session is locked |
 | `vnc.NoVNCSession` | The built-in noVNC web client connects and renders the desktop in a browser tab |
+| `vnc.DisplayHotplug` | Forcing an external display's connector off/on updates the daemon's inventory and capture falls back gracefully (needs an external display) |
 | `vnc.RebootPersistence` | *(host-driven)* The enabled state (Chrome pref) persists across a reboot |
 | `vnc.SuspendResume` | *(host-driven)* The daemon keeps serving after a suspend/resume cycle |
 
@@ -366,7 +367,8 @@ On an idle LAN, with one viewer at native resolution:
 | In-session input (buttons, wheel, keys) | `vnc.InputInjection`, `vnc.InputParity` | M-INP-2 (drag), M-INP-3 |
 | IME / keyboard layout | — | M-INP-3 |
 | Clipboard (viewer→device paste) | `vnc.Clipboard` | M-CLP-1 (device→viewer push, not implemented) |
-| Multi-display enumeration/switch | `vnc.MultiDisplay` | M-DSP-1, M-DSP-2 |
+| Multi-display enumeration/switch | `vnc.MultiDisplay` | M-DSP-1 |
+| Display hotplug | `vnc.DisplayHotplug` | — |
 | Logout/login/crash resilience | `vnc.SessionTransition` | M-SES-1 |
 | Lock screen | `vnc.LockScreen` | M-SES-2 (unlock via VNC keystrokes) |
 | Suspend/resume | `vnc.SuspendResume` | — |
@@ -383,8 +385,8 @@ Notes:
 - What stays manual: pre-login input verification (M-INP-1), IME/layout
   (M-INP-3), pointer drag (part of M-INP-2), the device→viewer clipboard
   direction (M-CLP-1, not implemented in the daemon), unlocking specifically
-  via VNC keystrokes (M-SES-2), display hotplug (M-DSP-2), network change
-  (M-NET-2), client compatibility with third-party viewers (M-CLI-1), the
+  via VNC keystrokes (M-SES-2), network change (M-NET-2), client compatibility
+  with third-party viewers (M-CLI-1), the
   subjective latency/quality feel (M-PRF-1), and the OOBE setup screen
   (M-OOBE-1…4). The OOBE screen only appears when a VNC client is connected as
   OOBE finishes, so it is exercised through M-OOBE, not the automated suite.
