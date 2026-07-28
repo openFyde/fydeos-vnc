@@ -174,18 +174,7 @@ matrix in section 5 shows where each function is covered. Record each case as
 Pass / Fail / Blocked with notes. "Viewer" means a VeNCrypt-capable VNC client
 (TigerVNC recommended) unless stated otherwise.
 
-### 4.1 Settings UI
-
-**M-SET-4 — Certificate change is visible to a trusting viewer**
-Precondition: a viewer has connected before and trusted the certificate.
-1. In Settings, regenerate the certificate.
-   Expected: a new fingerprint appears and Settings warns if sessions are
-   active; on reconnect, the previously-trusting viewer warns that the server
-   certificate changed.
-(The regeneration itself is automated by `vnc.Settings`, `vnc.TLSCertificate`,
-and `vnc.DBusAPI`; only the third-party viewer's trust warning needs a human.)
-
-### 4.2 OOBE flow
+### 4.1 OOBE flow
 
 The OOBE setup screen only appears when a VNC client is connected as OOBE
 finishes, so it cannot be reached by the automated suite.
@@ -215,7 +204,7 @@ Complete OOBE locally with no VNC client connected.
 Expected: the VNC setup screen is *not* shown; after OOBE the VNC service is
 disabled by default.
 
-### 4.3 Viewing and input
+### 4.2 Viewing and input
 
 **M-INP-2 — Pointer drag and drag-select**
 Precondition: logged in, viewer connected. (Right/middle click and wheel are
@@ -242,7 +231,7 @@ device->viewer direction is not implemented in the daemon.
    implemented. (When implemented: long text up to ~1 MB and non-ASCII should
    be preserved with a client using the extended clipboard.)
 
-### 4.4 Displays
+### 4.3 Displays
 
 **M-DSP-1 — Display selection experience**
 Precondition: two displays connected, logged in. (Enumeration and the switch
@@ -252,7 +241,7 @@ and input feel.)
    Expected: correct image on each; input lands on the display being viewed;
    the viewer handles the geometry change without artifacts.
 
-### 4.5 Clients, web access, discovery
+### 4.4 Clients, web access, discovery
 
 **M-CLI-1 — Client compatibility matrix**
 Connect, authenticate (with and without password), view, and type with each
@@ -271,7 +260,7 @@ Expected: the service re-binds to the new LAN address; Settings shows the
 updated address; a viewer can connect on the new address. (Runtime re-bind is
 a known product gap — record the actual behavior.)
 
-### 4.6 Performance
+### 4.5 Performance
 
 **M-PRF-1 — Latency and quality feel**
 On an idle LAN, with one viewer at native resolution:
@@ -292,7 +281,7 @@ On an idle LAN, with one viewer at native resolution:
 | Enable/disable listener lifecycle | `vnc.DBusAPI`, `vnc.NetworkBinding` | — |
 | Enabled state persists across reboot | `vnc.RebootPersistence` | — |
 | TLS mandatory, cert, fingerprint | `vnc.TLSCertificate`, `vnc.AuthMatrix`, `vnc.Settings` | — |
-| Certificate regeneration | `vnc.DBusAPI`, `vnc.TLSCertificate`, `vnc.Settings` | M-SET-4 |
+| Certificate regeneration | `vnc.DBusAPI`, `vnc.TLSCertificate`, `vnc.Settings` | — |
 | Password auth (bcrypt, live update) | `vnc.DBusAPI`, `vnc.AuthMatrix`, `vnc.SettingsPassword` | — |
 | Insecure-client mode (VncAuth/plain) | `vnc.AuthMatrix` | M-CLI-1 |
 | Loopback/web auth fast path | `vnc.AuthMatrix`, `vnc.NoVNCWeb` | — |
@@ -324,12 +313,11 @@ Notes:
 - What genuinely needs a human (all that is left in section 4): the OOBE setup
   screen (M-OOBE-1…4), IME / non-US layout (M-INP-3), pointer drag & drag-select
   (M-INP-2), the device→viewer clipboard direction (M-CLP-1, not implemented),
-  the multi-display visual / input-feel check (M-DSP-1), the certificate-change
-  warning a trusting third-party viewer shows (M-SET-4), network change /
+  the multi-display visual / input-feel check (M-DSP-1), network change /
   runtime re-bind (M-NET-2, a product gap), third-party client compatibility
   (M-CLI-1), and the subjective latency / quality feel (M-PRF-1).
 - Every other former manual case — enable/disable, fingerprint, password,
-  pre-login & lock-screen input, session transitions, suspend/resume, mDNS,
+  certificate regeneration, pre-login & lock-screen input, session transitions, suspend/resume, mDNS,
   auth abuse, no-plaintext, display hotplug, full noVNC session — is fully
   automated and has been deleted from this section; see the matrix above.
 
