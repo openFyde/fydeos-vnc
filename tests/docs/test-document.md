@@ -397,8 +397,10 @@ Notes:
 
 - **Smoke (automated, ≈4 min)**: `tast run <dut> 'vnc.Lifecycle vnc.DBusAPI
   vnc.CaptureKMS'` — service up, API sane, pixels flowing.
-- **Full automated (≈10 min)**: `tast run <dut> 'vnc.*'` on a test-image DUT
-  (attach a second display for the multi-display switching checks), then
-  `./run_all.sh` from a host on the DUT's LAN for the external checks.
+- **Full automated (24 tests, ≈15–25 min)**: `tast run <dut> 'vnc.*'` on a
+  test-image DUT (attach a second display for the multi-display / hotplug
+  checks), then `./run_all.sh` from a host on the DUT's LAN for the external
+  checks. Includes reboot, suspend/resume, and the login-screen flow, so it
+  runs longer than the per-test times suggest.
 - **Release regression**: full automated pass + all manual cases in section 4,
   including the client matrix and the OOBE cases on a freshly reset device.

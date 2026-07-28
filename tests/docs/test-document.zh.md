@@ -369,8 +369,9 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 
 - **冒烟测试（约 4 分钟，自动化）**：`tast run <dut> 'vnc.Lifecycle
   vnc.DBusAPI vnc.CaptureKMS'` —— 服务在线、API 正常、画面可达。
-- **完整自动化（约 10 分钟）**：对 test-image 的 DUT 运行
-  `tast run <dut> 'vnc.*'`（多显示器切换检查需接入第二显示器），再从
-  DUT 所在局域网的主机运行 `./run_all.sh` 完成外部检查。
+- **完整自动化（24 个测试，约 15–25 分钟）**：对 test-image 的 DUT 运行
+  `tast run <dut> 'vnc.*'`（多显示器/热插拔检查需接入第二显示器），再从
+  DUT 所在局域网的主机运行 `./run_all.sh` 完成外部检查。包含重启、休眠/唤醒
+  与登录屏流程，因此整体耗时长于单条测试之和。
 - **版本回归**：完整自动化 + 第 4 节全部手动用例，包括客户端矩阵与在
   恢复出厂设备上的 OOBE 用例。
