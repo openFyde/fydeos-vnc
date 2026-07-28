@@ -125,7 +125,7 @@ Chrome-based test) and the two host-driven tests reboot / suspend the device.
 | `vnc.MultiDisplay` | Display inventory; switching the captured display changes the framebuffer to that display's geometry and back; the frame shows that display's content and an injected click lands on it; unknown-id error path (switching checks skip with one display) |
 | `vnc.Performance` | Daemon CPU while idle and while a viewer streams, reported to the perf pipeline with generous regression ceilings (the < 1% / 15% design targets are informational: the Raw-only test client is not comparable to a Tight viewer) |
 | `vnc.InputParity` | Right-click opens a context menu, middle-click opens a new tab, the wheel scrolls, a drag selects text, and a caption drag moves the window — all injected over RFB |
-| `vnc.Clipboard` | A viewer's RFB cut-text is pasted into the focused field; a device-side copy is pushed to viewers — legacy Latin-1 ServerCutText and Extended Clipboard (notify→request→provide, UTF-8 intact, sync on connect) |
+| `vnc.Clipboard` | A viewer's RFB cut-text is pasted into the focused field; a device-side copy is pushed to viewers — legacy Latin-1 ServerCutText and Extended Clipboard (notify→request→provide, UTF-8 intact, sync on connect, ~1 MB payload) |
 | `vnc.AuthAbuse` | Repeated wrong passwords are refused and the daemon stays healthy (no per-IP backoff is implemented) |
 | `vnc.SettingsPassword` | Setting a password through the os-settings dialog makes the daemon require it |
 | `vnc.LockScreen` | While locked the daemon serves the lock screen, and VNC-injected keystrokes drive it: wrong password rejected, correct password unlocks |
@@ -222,23 +222,19 @@ Precondition: logged in, a non-US layout or CJK IME added on the DUT.
    Expected: composition and candidate windows behave as with a local
    keyboard.
 
-**M-CLP-1 — Clipboard with real clients**
-Precondition: viewer with clipboard support (TigerVNC / noVNC clipboard
-panel). Both directions are automated at the protocol level by
-`vnc.Clipboard` (viewer->device paste; device->viewer push to legacy and
-Extended Clipboard clients, including the sync on connect); this case
-checks the end-to-end experience with real clients.
-1. Copy text on the DUT, then paste on the client machine (TigerVNC) or open
-   the noVNC clipboard panel.
-   Expected: the copied text appears; non-ASCII is preserved with an
-   Extended Clipboard client (TigerVNC, noVNC); a legacy-only client
-   receives a Latin-1 transliteration.
-2. Copy text on the client machine, focus a text field on the DUT via VNC and
-   send the clipboard (TigerVNC does this automatically on focus; noVNC via
-   its clipboard panel). Expected: the text is typed into the focused field.
-3. Copy a password from a password manager on the DUT.
-   Expected: it is NOT pushed to viewers (confidential clipboard content is
-   filtered).
+**M-CLP-1 — Confidential clipboard is not pushed**
+Precondition: logged in, a viewer connected, a password saved in the DUT's
+password manager. (Clipboard transfer itself — both directions, connect-time
+sync, UTF-8, and a ~1 MB payload — is automated by `vnc.Clipboard`. Only this
+security check needs a human: copying a stored password requires the
+device-authentication dialog, which cannot be scripted.)
+1. In the password manager, copy a saved password (complete the
+   authentication prompt).
+   Expected: the password is NOT pushed to any connected viewer — the
+   viewer's clipboard keeps its previous contents.
+2. Copy ordinary text afterwards.
+   Expected: it is pushed normally, proving the filter is content-specific
+   and not a stuck state.
 
 ### 4.3 Clients, web access, discovery
 
@@ -293,7 +289,8 @@ On an idle LAN, with one viewer at native resolution:
 | Pre-login / lock-screen input | `vnc.LockScreen`, `vnc.LoginScreenInput` | — |
 | In-session input (buttons, wheel, drag, keys) | `vnc.InputInjection`, `vnc.InputParity` | M-INP-3 |
 | IME / keyboard layout | — | M-INP-3 |
-| Clipboard (both directions) | `vnc.Clipboard` (viewer→device paste; device→viewer legacy + Extended Clipboard incl. connect-time sync) | M-CLP-1 (real-client experience, confidential filter) |
+| Clipboard (both directions) | `vnc.Clipboard` (viewer→device paste; device→viewer legacy + Extended Clipboard, connect-time sync, UTF-8, ~1 MB payload) | — |
+| Confidential clipboard filtered | — (needs the un-scriptable device-auth dialog; a Chrome-side unit test is the automated route) | M-CLP-1 |
 | Multi-display enumeration/switch/content/input | `vnc.MultiDisplay` | — |
 | Display hotplug | `vnc.DisplayHotplug` | — |
 | Logout/login/crash resilience | `vnc.SessionTransition` | — |
@@ -310,8 +307,8 @@ On an idle LAN, with one viewer at native resolution:
 
 Notes:
 - What genuinely needs a human (all that is left in section 4): the OOBE setup
-  screen (M-OOBE-1…4), IME / non-US layout (M-INP-3), real-client
-  clipboard experience (M-CLP-1),
+  screen (M-OOBE-1…4), IME / non-US layout (M-INP-3), the confidential-clipboard check (M-CLP-1, which needs the
+  device-authentication dialog),
   network change /
   runtime re-bind (M-NET-2, a product gap), third-party client compatibility
   (M-CLI-1), and the subjective latency / quality feel (M-PRF-1).

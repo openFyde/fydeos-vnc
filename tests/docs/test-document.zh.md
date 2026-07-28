@@ -116,7 +116,7 @@ tast run <dut-ip>[:ssh-port] 'vnc.*'
 | `vnc.MultiDisplay` | 显示器清单；切换捕获显示器后帧缓冲变为该显示器几何尺寸并可切回；帧内容为该显示器画面且注入点击落在该显示器上；未知 id 错误路径（仅一台显示器时跳过切换检查） |
 | `vnc.Performance` | 守护进程空闲与查看器串流时的 CPU，按宽松的回归上限上报 perf 管线（< 1% / 15% 设计指标仅供参考：Raw-only 测试客户端与 Tight 查看器不可直接比较） |
 | `vnc.InputParity` | 经 RFB 注入的右键弹出上下文菜单、中键打开新标签页、滚轮滚动、拖拽选中文本、拖动标题区移动窗口 |
-| `vnc.Clipboard` | 查看器的 RFB cut-text 被粘贴进聚焦的输入框；设备侧复制推送到查看器 —— legacy Latin-1 ServerCutText 与 Extended Clipboard（notify→request→provide、UTF-8 完整、连接时同步） |
+| `vnc.Clipboard` | 查看器的 RFB cut-text 被粘贴进聚焦的输入框；设备侧复制推送到查看器 —— legacy Latin-1 ServerCutText 与 Extended Clipboard（notify→request→provide、UTF-8 完整、连接时同步、约 1 MB 负载） |
 | `vnc.AuthAbuse` | 反复错误密码均被拒且守护进程保持健康（未实现按 IP 退避） |
 | `vnc.SettingsPassword` | 经 os-settings 密码对话框设置密码后守护进程要求密码 |
 | `vnc.LockScreen` | 锁定期间守护进程提供锁屏画面，且经 VNC 注入的击键可驱动锁屏：错误密码被拒、正确密码解锁 |
@@ -206,17 +206,15 @@ VNC 设置屏仅在 OOBE 结束时有 VNC 客户端连接的情况下才出现�
 2. 切换到输入法并进行组合输入（如拼音 → 候选词选择）。
    预期：组合与候选窗口的行为与本地键盘一致。
 
-**M-CLP-1 —— 剪贴板（真实客户端）**
-前置条件：查看器支持剪贴板（TigerVNC / noVNC 剪贴板面板）。两个方向均已由
-`vnc.Clipboard` 在协议层覆盖（查看器→设备粘贴；设备→查看器推送到 legacy 与
-Extended Clipboard 客户端，含连接时同步）；本用例核对真实客户端的端到端体验。
-1. 在 DUT 上复制文本，然后在客户端机器粘贴（TigerVNC）或打开 noVNC 剪贴板
-   面板。预期：复制的文本出现；Extended Clipboard 客户端（TigerVNC、noVNC）
-   保留非 ASCII 字符；仅支持 legacy 的客户端收到 Latin-1 转写。
-2. 在客户端机器复制文本，经 VNC 聚焦 DUT 上的文本框并发送剪贴板（TigerVNC
-   聚焦时自动发送；noVNC 经剪贴板面板）。预期：文本被输入进聚焦的输入框。
-3. 在 DUT 上从密码管理器复制密码。
-   预期：不会推送给查看器（标记为机密的剪贴板内容被过滤）。
+**M-CLP-1 —— 机密剪贴板内容不外推**
+前置条件：已登录，查看器已连接，DUT 的密码管理器中已保存一条密码。
+（剪贴板传输本身 —— 双向、连接时同步、UTF-8、约 1 MB 负载 —— 已由
+`vnc.Clipboard` 自动化。仅本项安全检查需要人工：复制已保存的密码需要设备
+认证对话框，无法脚本化。）
+1. 在密码管理器中复制一条已保存的密码（完成认证提示）。
+   预期：该密码不会推送给任何已连接的查看器 —— 查看器剪贴板保持原内容。
+2. 随后复制一段普通文本。
+   预期：正常推送，证明过滤是按内容判定而非卡死状态。
 
 ### 4.3 客户端、网页访问、发现
 
@@ -269,7 +267,8 @@ Extended Clipboard 客户端，含连接时同步）；本用例核对真实客�
 | 登录前 / 锁屏输入 | `vnc.LockScreen`、`vnc.LoginScreenInput` | — |
 | 登录后输入（按键、滚轮、拖拽、键盘） | `vnc.InputInjection`、`vnc.InputParity` | M-INP-3 |
 | 输入法 / 键盘布局 | — | M-INP-3 |
-| 剪贴板（双向） | `vnc.Clipboard`（查看器→设备粘贴；设备→查看器 legacy + Extended Clipboard，含连接时同步） | M-CLP-1（真实客户端体验、机密过滤） |
+| 剪贴板（双向） | `vnc.Clipboard`（查看器→设备粘贴；设备→查看器 legacy + Extended Clipboard、连接时同步、UTF-8、约 1 MB 负载） | — |
+| 机密剪贴板内容被过滤 | ——（需无法脚本化的设备认证对话框；自动化途径是 Chrome 侧单元测试） | M-CLP-1 |
 | 多显示器枚举/切换/内容/输入 | `vnc.MultiDisplay` | — |
 | 显示器热插拔 | `vnc.DisplayHotplug` | — |
 | 登出/登录/崩溃健壮性 | `vnc.SessionTransition` | — |
@@ -286,8 +285,7 @@ Extended Clipboard 客户端，含连接时同步）；本用例核对真实客�
 
 说明：
 - 真正需要人工的项（第 4 节仅剩这些）：OOBE 设置屏（M-OOBE-1…4）、输入法/
-  非美式布局（M-INP-3）、真实客户端剪贴板体验
-  （M-CLP-1）、网络切换/运行时重新绑定（M-NET-2，产品缺口）、第三方客户端兼容性（M-CLI-1）、主观延迟/画质体验（M-PRF-1）。
+  非美式布局（M-INP-3）、机密剪贴板检查（M-CLP-1，需设备认证对话框）、网络切换/运行时重新绑定（M-NET-2，产品缺口）、第三方客户端兼容性（M-CLI-1）、主观延迟/画质体验（M-PRF-1）。
 - 其余原手动用例 —— 开关、指纹、密码、证书重新生成、登录前与锁屏输入、会话切换、休眠/
   唤醒、mDNS、认证滥用、无明文、显示器热插拔、完整 noVNC 会话 —— 均已完全
   自动化并从本节删除；见上方矩阵。
