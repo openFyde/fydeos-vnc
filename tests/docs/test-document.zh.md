@@ -1,17 +1,14 @@
 # FydeOS VNC — 测试文档
 
-本文档说明如何测试 FydeOS VNC 远程访问功能，包含三种互补的测试方法：
+本文档说明如何测试 FydeOS VNC 远程访问功能，包含两套互补的自动化测试：
 
 - **设备端自动化测试（Tast）** —— `vnc.*` 测试在设备上运行，端到端覆盖
   守护进程：D-Bus 控制 API、RFB/VeNCrypt 协议、TLS、认证、画面捕获、
   输入注入、设置界面、多显示器、noVNC 网页访问、会话切换以及 CPU。
 - **外部观察者测试（shell 套件）** —— 一小组只有从 DUT 所在局域网的另一台
   主机才有意义的检查：mDNS 传播、并发查看器、主机侧性能。
-- **手动测试** —— 仅剩两个需要真实第三方软件或人眼判断的用例：
-  第三方 VNC 客户端兼容性，以及主观的延迟/画质体验。
-
-`vnc.*` Tast 测试、`x0*` shell 检查与手动用例（M-\*）合在一起覆盖全部
-VNC 功能。第 5 节的覆盖矩阵列出了每个功能与用例的对应关系。
+`vnc.*` Tast 测试与 `x0*` shell 检查合在一起覆盖全部 VNC 功能 —— 没有手动
+用例。第 5 节的覆盖矩阵列出了每个功能对应的测试。
 
 ---
 
@@ -58,7 +55,7 @@ FydeOS VNC 允许同一局域网内任何符合标准的 VNC 客户端查看并�
 | `python3`（3.8+） | RFB 协议客户端 | 必需 |
 | `avahi-browse`（`avahi-utils` 包） | mDNS 传播检查 | 可选 |
 | `sshpass` | 免交互的密码 SSH | 可选 |
-| TigerVNC（或其他支持 VeNCrypt 的查看器） | 手动用例 | 手动测试需要 |
+| TigerVNC（`tigervnc-viewer`）+ `xvfb` | 真实客户端检查（`x04`） | `x04` 需要 |
 
 无需任何第三方 Python 包 —— 随附的 RFB 客户端（`lib/vncrfb.py`）只使用
 标准库。
@@ -133,7 +130,7 @@ tast run <dut-ip>[:ssh-port] 'vnc.*'
 
 ```bash
 cd tests
-./run_all.sh            # x01 + x02 + x03
+./run_all.sh            # x01 + x02 + x03 + x04
 ./run_all.sh x02        # 只运行子集
 ```
 
@@ -145,6 +142,7 @@ cd tests
 | `x01_discovery.sh` | mDNS `_rfb._tcp` "FydeOS VNC" 记录对局域网内其他主机可见；RFB/noVNC 端口可从另一台机器访问 |
 | `x02_multiclient.sh` | 多个查看器同时连接 —— 各自完成握手与抓帧 —— 之后守护进程仍健康 |
 | `x03_performance.sh` | 主机侧整帧往返（连接+TLS+认证+首帧）以及查看器在线路上观察到的更新吞吐/帧率 |
+| `x04_tigervnc.sh` | 独立客户端（TigerVNC，Xvfb 无头运行）完成 VeNCrypt/X509 握手、打开真实桌面，且守护进程保持健康 |
 
 `x01` 的发现与可达性检查需要真实的局域网路径，在 NAT 之后会 WARN。
 `x02`/`x03` 在设备不可直连时会自动建立隧道（隧道数值含 SSH 开销）。
@@ -165,33 +163,14 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # 帧率/带宽
 
 ## 4. 手动测试用例
 
-以下是自动化 `vnc.*` 套件无法完全覆盖的用例：它们需要人工、真实的第三方
-客户端或物理硬件。凡是测试能够验证的部分都已自动化并从本节移除 —— 第 5 节
-的覆盖矩阵标明了每个功能的覆盖位置。每个用例记录 通过 / 失败 / 受阻 及备注。
-除特别说明外，"查看器"指支持 VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
+无。全部 VNC 功能均已由第 3 节的自动化套件覆盖 —— 第 5 节的覆盖矩阵列出了
+每个功能对应的测试。
 
-### 4.1 客户端、网页访问、发现
-
-**M-CLI-1 —— 客户端兼容性矩阵**
-使用下列每个客户端进行连接、认证（有密码与无密码两种）、查看、输入，
-并逐一记录结果：
-- TigerVNC（Linux/Windows）—— 首选参考客户端
-- RealVNC Viewer
-- noVNC（任意现代浏览器，走内置网页访问）
-- 一款移动客户端（如 Android 的 AVNC，或其他支持 VeNCrypt 的应用）
-预期：支持 VeNCrypt 的客户端功能完整。不支持 VeNCrypt/TLS 的客户端必须
-被*拒绝*，除非启用了"允许不安全连接" —— 这种拒绝是正确行为，不是缺陷。
-
-
-### 4.2 性能
-
-**M-PRF-1 —— 延迟与画质体验**
-在空闲局域网中，单个查看器、原生分辨率下：
-1. 通过 VNC 在终端/编辑器中打字。预期：回显感觉即时（目标 < 80 ms；
-   可与物理屏幕并排对比）。
-2. 画圈拖动窗口；全屏播放视频。
-   预期：运动画面连贯（允许少量模糊/撕裂）；界面保持响应；DUT 不过热、
-   前台应用不被拖慢。
+明确交给用户验收测试（UAT）而不写成脚本用例的部分：主观画质体验（运动、
+视频、清晰度），以及 TigerVNC 与内置 noVNC 之外的客户端兼容性（RealVNC、
+移动端应用）。另外不测试：输入法组合与非美式键盘布局；以及网络切换后的
+运行时重新绑定 —— 守护进程仅在启动时绑定一次，因此 Wi-Fi/有线切换后查看器
+需以新地址重新连接。
 
 ---
 
@@ -206,13 +185,13 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # 帧率/带宽
 | 强制 TLS、证书、指纹 | `vnc.TLSCertificate`、`vnc.AuthMatrix`、`vnc.Settings` | — |
 | 证书重新生成 | `vnc.DBusAPI`、`vnc.TLSCertificate`、`vnc.Settings` | — |
 | 密码认证（bcrypt、实时生效） | `vnc.DBusAPI`、`vnc.AuthMatrix`、`vnc.SettingsPassword` | — |
-| 不安全客户端模式（VncAuth/明文） | `vnc.AuthMatrix` | M-CLI-1 |
+| 不安全客户端模式（VncAuth/明文） | `vnc.AuthMatrix` | — |
 | 回环/网页认证快速通道 | `vnc.AuthMatrix`、`vnc.NoVNCWeb` | — |
 | 仅绑定局域网 | `vnc.NetworkBinding` | — |
 | mDNS 发现 | `vnc.NetworkBinding`（出现+撤销）；`x01`（外部传播） | — |
 | 登录前（KMS）捕获 | `vnc.CaptureKMS`、`vnc.SessionTransition`、`vnc.LoginScreenInput` | — |
-| 登录后（合成器）捕获 | `vnc.CaptureChrome` | M-PRF-1 |
-| 增量更新流、帧率 | `vnc.CaptureChrome`、`vnc.Performance`；`x03` | M-PRF-1 |
+| 登录后（合成器）捕获 | `vnc.CaptureChrome` | — |
+| 增量更新流、帧率 | `vnc.CaptureChrome`、`vnc.Performance`；`x03` | — |
 | 帧缓冲几何/对齐/尺寸变化 | `vnc.CaptureKMS`、`vnc.MultiDisplay` | — |
 | 登录前 / 锁屏输入 | `vnc.LockScreen`、`vnc.LoginScreenInput` | — |
 | 登录后输入（按键、滚轮、拖拽、键盘） | `vnc.InputInjection`、`vnc.InputParity` | — |
@@ -225,24 +204,25 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # 帧率/带宽
 | 重启持久化 | `vnc.RebootPersistence` | — |
 | noVNC 网页访问 | `vnc.NoVNCWeb`、`vnc.NoVNCSession`；`x01`、`x03` | — |
 | OOBE 设置屏（门控、启用、禁用） | `vnc.OOBESetup` | — |
-| 并发查看器 | `x02` | M-CLI-1 |
-| 客户端兼容性 | 协议层：`vnc.AuthMatrix` + 两个独立实现的 RFB 客户端 | M-CLI-1 |
-| CPU 指标 | `vnc.Performance` | M-PRF-1 |
-| 主机侧延迟/吞吐 | `x03` | M-PRF-1 |
+| 并发查看器 | `x02` | — |
+| 客户端兼容性 | `x04`（TigerVNC：VeNCrypt X509 + 真实桌面）；协议层：`vnc.AuthMatrix` | — |
+| CPU 指标 | `vnc.Performance` | — |
+| 输入（点击到像素）延迟 | `vnc.Performance`（上报，80 ms 指标） | — |
+| 主机侧延迟/吞吐 | `x03` | — |
 | 认证滥用防护 | `vnc.AuthAbuse` | — |
 
 说明：
-- 真正需要人工的项（第 4 节仅剩这些）：第三方客户端兼容性（M-CLI-1）与
-  主观延迟/画质体验（M-PRF-1）。
+- 第 4 节已为空：所有功能均有自动化测试。交给用户验收测试的部分：主观画质，
+  以及 TigerVNC（由 `x04` 覆盖）与内置 noVNC 之外的客户端。
 - 明确不测试的项：输入法组合与非美式键盘布局；以及网络切换后的运行时重新
   绑定 —— 守护进程未实现该能力（仅在启动时绑定一次，因此 Wi-Fi/有线切换后
   查看器需以新地址重新连接）。
-- 其余原手动用例 —— 开关、指纹、密码、证书重新生成、登录前与锁屏输入、
-  会话切换、休眠/唤醒、mDNS、认证滥用、无明文、显示器热插拔、完整 noVNC
-  会话、指针拖拽、多显示器内容/输入、剪贴板（双向）、OOBE 设置屏 —— 均已
-  完全自动化并从本节删除；见上方矩阵。
-- Tight 编码仅由真实查看器（noVNC 会话与 M-CLI-1）实际使用；自动化 RFB
-  测试客户端仅解码 Raw。
+- 本文档曾列为手动的全部用例 —— 开关、指纹、密码、证书重新生成、登录前与
+  锁屏输入、会话切换、休眠/唤醒、mDNS、认证滥用、无明文、显示器热插拔、
+  完整 noVNC 会话、指针拖拽、多显示器内容/输入、剪贴板（双向）、OOBE 设置屏、
+  点击延迟、TigerVNC 兼容性 —— 现均已自动化；见上方矩阵。
+- Tight 编码仅由真实查看器（noVNC 会话与 `x04` 的 TigerVNC）请求；本套件
+  自身的 RFB 客户端仅解码 Raw。
 
 ---
 
@@ -254,5 +234,5 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # 帧率/带宽
   `tast run <dut> 'vnc.*'`（多显示器/热插拔检查需接入第二显示器），再从
   DUT 所在局域网的主机运行 `./run_all.sh` 完成外部检查。包含重启、休眠/唤醒
   与登录屏流程，因此整体耗时长于单条测试之和。
-- **版本回归**：完整自动化 + 第 4 节全部手动用例，包括客户端矩阵与在
-  恢复出厂设备上的 OOBE 用例。
+- **版本回归**：先执行上述完整自动化，再安排一次 UAT，覆盖脚本无法判断的
+  部分 —— 真实使用中的画质，以及本版本需要支持的其他 VNC 客户端。

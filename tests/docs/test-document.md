@@ -1,7 +1,7 @@
 # FydeOS VNC — Test Document
 
 This document describes how to test the FydeOS VNC remote-access feature. It
-covers three complementary methods:
+covers two complementary automated suites:
 
 - **On-device automated tests (Tast)** — the `vnc.*` tests run on the device
   and exercise the daemon end to end: D-Bus control API, RFB/VeNCrypt protocol,
@@ -10,13 +10,9 @@ covers three complementary methods:
 - **External-observer tests (shell suite)** — a small set of checks that only
   make sense from a separate host on the DUT's LAN: mDNS propagation, concurrent
   viewers, and host-side performance.
-- **Manual tests** — the two cases that need real third-party software or a
-  human eye: compatibility with third-party VNC clients, and the subjective
-  latency / quality feel.
-
-Together the `vnc.*` Tast tests, the `x0*` shell checks, and the manual cases
-(`M-*`) cover all VNC functions. The coverage matrix in section 5 maps every
-function to its cases.
+Together the `vnc.*` Tast tests and the `x0*` shell checks cover all VNC
+functions — there are no manual test cases. The coverage matrix in section 5
+maps every function to the test that covers it.
 
 ---
 
@@ -65,7 +61,7 @@ suite) on the same LAN as the DUT:
 | `python3` (3.8+) | RFB protocol client | yes |
 | `avahi-browse` (package `avahi-utils`) | mDNS propagation check | optional |
 | `sshpass` | non-interactive SSH with password | optional |
-| TigerVNC (or another VeNCrypt-capable viewer) | manual cases | for manual tests |
+| TigerVNC (`tigervnc-viewer`) + `xvfb` | real-client check (`x04`) | for `x04` |
 
 No third-party Python packages are needed — the bundled RFB client
 (`lib/vncrfb.py`) is standard-library only.
@@ -142,7 +138,7 @@ the Tast tests.
 
 ```bash
 cd tests
-./run_all.sh            # x01 + x02 + x03
+./run_all.sh            # x01 + x02 + x03 + x04
 ./run_all.sh x02        # a subset
 ```
 
@@ -154,6 +150,7 @@ combined report under `tests/artifacts/`.
 | `x01_discovery.sh` | mDNS `_rfb._tcp` "FydeOS VNC" record is visible to other hosts on the LAN; RFB/noVNC ports reachable from another machine |
 | `x02_multiclient.sh` | Several viewers connect at once — each completes a handshake and frame grab — and the daemon stays healthy afterwards |
 | `x03_performance.sh` | Host-side full-frame round-trip (connect+TLS+auth+first frame) and the update throughput/fps a viewer observes over the wire |
+| `x04_tigervnc.sh` | An independent client (TigerVNC, headless under Xvfb) completes the VeNCrypt/X509 handshake, opens the real desktop, and leaves the daemon healthy |
 
 `x01`'s discovery and reachability checks need a real LAN path; behind NAT they
 warn. `x02`/`x03` tunnel the VNC ports automatically when the device is not
@@ -175,36 +172,16 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # fps/bandwidth
 
 ## 4. Manual test cases
 
-These are the cases the automated `vnc.*` suite cannot fully exercise: they
-need a human, a real third-party client, or physical hardware. Anything a test
-can check has been automated and removed from this section — the coverage
-matrix in section 5 shows where each function is covered. Record each case as
-Pass / Fail / Blocked with notes. "Viewer" means a VeNCrypt-capable VNC client
-(TigerVNC recommended) unless stated otherwise.
+None. Every VNC function is covered by the automated suites in section 3 — the
+coverage matrix in section 5 maps each function to the test that covers it.
 
-### 4.1 Clients, web access, discovery
-
-**M-CLI-1 — Client compatibility matrix**
-Connect, authenticate (with and without password), view, and type with each
-client; record results per client:
-- TigerVNC (Linux/Windows) — primary reference client
-- RealVNC Viewer
-- noVNC (any modern browser, via the built-in web access)
-- A mobile client (e.g. AVNC on Android, or another VeNCrypt-capable app)
-Expected: VeNCrypt-capable clients work fully. Clients without VeNCrypt/TLS
-support must be *refused* unless "allow insecure connections" was enabled —
-that refusal is correct behavior, not a bug.
-
-
-### 4.2 Performance
-
-**M-PRF-1 — Latency and quality feel**
-On an idle LAN, with one viewer at native resolution:
-1. Type in a terminal/editor via VNC. Expected: echo feels immediate
-   (target < 80 ms; compare side-by-side with the physical screen).
-2. Drag a window in circles; play a video fullscreen.
-   Expected: motion is coherent (some blur/tearing acceptable); the UI stays
-   responsive; DUT does not overheat or starve foreground apps.
+What is deliberately left to user acceptance testing rather than a scripted
+case: the subjective picture-quality feel (motion, video, sharpness), and
+compatibility with VNC clients other than TigerVNC and the built-in noVNC
+(RealVNC, mobile apps). Also not tested: IME composition and non-US keyboard
+layouts, and runtime re-binding after a network change — the daemon binds once
+at start-up, so a viewer must reconnect on the new address after a
+Wi-Fi/Ethernet switch.
 
 ---
 
@@ -219,13 +196,13 @@ On an idle LAN, with one viewer at native resolution:
 | TLS mandatory, cert, fingerprint | `vnc.TLSCertificate`, `vnc.AuthMatrix`, `vnc.Settings` | — |
 | Certificate regeneration | `vnc.DBusAPI`, `vnc.TLSCertificate`, `vnc.Settings` | — |
 | Password auth (bcrypt, live update) | `vnc.DBusAPI`, `vnc.AuthMatrix`, `vnc.SettingsPassword` | — |
-| Insecure-client mode (VncAuth/plain) | `vnc.AuthMatrix` | M-CLI-1 |
+| Insecure-client mode (VncAuth/plain) | `vnc.AuthMatrix` | — |
 | Loopback/web auth fast path | `vnc.AuthMatrix`, `vnc.NoVNCWeb` | — |
 | LAN-only binding | `vnc.NetworkBinding` | — |
 | mDNS discovery | `vnc.NetworkBinding` (present + withdrawn); `x01` (external propagation) | — |
 | Pre-login (KMS) capture | `vnc.CaptureKMS`, `vnc.SessionTransition`, `vnc.LoginScreenInput` | — |
-| In-session (compositor) capture | `vnc.CaptureChrome` | M-PRF-1 |
-| Damage/update stream, fps | `vnc.CaptureChrome`, `vnc.Performance`; `x03` | M-PRF-1 |
+| In-session (compositor) capture | `vnc.CaptureChrome` | — |
+| Damage/update stream, fps | `vnc.CaptureChrome`, `vnc.Performance`; `x03` | — |
 | Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` | — |
 | Pre-login / lock-screen input | `vnc.LockScreen`, `vnc.LoginScreenInput` | — |
 | In-session input (buttons, wheel, drag, keys) | `vnc.InputInjection`, `vnc.InputParity` | — |
@@ -238,28 +215,29 @@ On an idle LAN, with one viewer at native resolution:
 | Reboot persistence | `vnc.RebootPersistence` | — |
 | noVNC web access | `vnc.NoVNCWeb`, `vnc.NoVNCSession`; `x01`, `x03` | — |
 | OOBE setup screen (gating, Enable, Disable) | `vnc.OOBESetup` | — |
-| Concurrent viewers | `x02` | M-CLI-1 |
-| Client compatibility | protocol level: `vnc.AuthMatrix` + two independent RFB client implementations | M-CLI-1 |
-| CPU targets | `vnc.Performance` | M-PRF-1 |
-| Host-side latency/throughput | `x03` | M-PRF-1 |
+| Concurrent viewers | `x02` | — |
+| Client compatibility | `x04` (TigerVNC: VeNCrypt X509 + real desktop); protocol level: `vnc.AuthMatrix` | — |
+| CPU targets | `vnc.Performance` | — |
+| Input (click-to-pixel) latency | `vnc.Performance` (reported, 80 ms target) | — |
+| Host-side latency/throughput | `x03` | — |
 | Auth abuse resilience | `vnc.AuthAbuse` | — |
 
 Notes:
-- What genuinely needs a human (all that is left in section 4): third-party
-  client compatibility (M-CLI-1) and the subjective latency / quality feel
-  (M-PRF-1).
+- Section 4 is empty: every function has an automated test. Left to user
+  acceptance testing: subjective picture quality, and clients other than
+  TigerVNC (covered by `x04`) and the built-in noVNC.
 - Deliberately not tested: IME composition and non-US keyboard layouts; and
   runtime re-binding after a network change, which the daemon does not
   implement (it binds once at start-up, so a viewer must reconnect on the new
   address after a Wi-Fi/Ethernet switch).
-- Every other former manual case — enable/disable, fingerprint, password,
-  certificate regeneration, pre-login & lock-screen input, session
-  transitions, suspend/resume, mDNS, auth abuse, no-plaintext, display
-  hotplug, full noVNC session, pointer drag, multi-display content/input,
-  clipboard (both directions), and the OOBE setup screen — is fully automated
-  and has been deleted from this section; see the matrix above.
-- Tight encoding is exercised only by real viewers (the noVNC session and
-  M-CLI-1); the automated RFB test clients decode Raw.
+- Every case this document once listed as manual — enable/disable,
+  fingerprint, password, certificate regeneration, pre-login & lock-screen
+  input, session transitions, suspend/resume, mDNS, auth abuse, no-plaintext,
+  display hotplug, full noVNC session, pointer drag, multi-display
+  content/input, clipboard (both directions), the OOBE setup screen, click
+  latency, and TigerVNC compatibility — is now automated; see the matrix.
+- Tight encoding is requested only by real viewers (the noVNC session and
+  `x04`'s TigerVNC); the suite's own RFB clients decode Raw.
 
 ---
 
@@ -272,5 +250,6 @@ Notes:
   checks), then `./run_all.sh` from a host on the DUT's LAN for the external
   checks. Includes reboot, suspend/resume, and the login-screen flow, so it
   runs longer than the per-test times suggest.
-- **Release regression**: full automated pass + all manual cases in section 4,
-  including the client matrix and the OOBE cases on a freshly reset device.
+- **Release regression**: the full automated pass above, then a UAT session
+  for what a script cannot judge — picture quality in real use, and any
+  additional VNC clients the release must support.
