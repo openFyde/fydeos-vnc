@@ -172,7 +172,10 @@ VeNCrypt-capable VNC client (TigerVNC recommended) unless stated otherwise.
 
 ### 4.1 Settings UI
 
-**M-SET-1 — Enable/disable toggle**
+**M-SET-1 — Enable/disable toggle** *(now automated — optional manual spot-check)*
+Covered by `vnc.Settings` (toggle round-trip + fingerprint shown), `vnc.DBusAPI`
+(listener opens/closes on enable/disable), and `vnc.RebootPersistence` (state
+survives a reboot). Run the steps below only for a hands-on UI sanity check.
 Precondition: logged in.
 1. Open Settings and locate the VNC / remote access section.
 2. Turn the toggle on. Expected: status becomes active; connection info
@@ -351,8 +354,9 @@ On an idle LAN, with one viewer at native resolution:
 | Function | Automated | Manual |
 |---|---|---|
 | Service start/stop/respawn/sandbox | `vnc.Lifecycle` | — |
-| Settings toggle & status | `vnc.DBusAPI`, `vnc.Settings` | M-SET-1 |
-| Enable/disable listener lifecycle | `vnc.DBusAPI`, `vnc.NetworkBinding` | M-SET-1 |
+| Settings toggle & status | `vnc.Settings`, `vnc.DBusAPI` | — |
+| Enable/disable listener lifecycle | `vnc.DBusAPI`, `vnc.NetworkBinding` | — |
+| Enabled state persists across reboot | `vnc.RebootPersistence` | — |
 | TLS mandatory, cert, fingerprint | `vnc.TLSCertificate`, `vnc.AuthMatrix` | M-SET-2, M-SEC-2 |
 | Certificate regeneration | `vnc.DBusAPI`, `vnc.TLSCertificate`, `vnc.Settings` | M-SET-4 |
 | Password auth (bcrypt, live update) | `vnc.DBusAPI`, `vnc.AuthMatrix`, `vnc.SettingsPassword` | — |

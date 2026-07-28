@@ -166,7 +166,10 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 
 ### 4.1 设置界面
 
-**M-SET-1 —— 开关**
+**M-SET-1 —— 开关** *（已自动化 —— 可选的人工抽查）*
+已由 `vnc.Settings`（开关往返 + 指纹显示）、`vnc.DBusAPI`（启用/禁用时监听器
+开启/关闭）与 `vnc.RebootPersistence`（状态在重启后保持）覆盖。以下步骤仅在需要
+人工核对 UI 时执行。
 前置条件：已登录。
 1. 打开设置，找到 VNC / 远程访问区域。
 2. 打开开关。预期：状态变为已启用；显示连接信息（IP:端口）与 TLS 指纹；
@@ -325,8 +328,9 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 | 功能 | 自动化 | 手动 |
 |---|---|---|
 | 服务启动/停止/自动重启/沙箱 | `vnc.Lifecycle` | — |
-| 设置开关与状态 | `vnc.DBusAPI`、`vnc.Settings` | M-SET-1 |
-| 开关对监听器的生命周期控制 | `vnc.DBusAPI`、`vnc.NetworkBinding` | M-SET-1 |
+| 设置开关与状态 | `vnc.Settings`、`vnc.DBusAPI` | — |
+| 开关对监听器的生命周期控制 | `vnc.DBusAPI`、`vnc.NetworkBinding` | — |
+| 启用状态在重启后保持 | `vnc.RebootPersistence` | — |
 | 强制 TLS、证书、指纹 | `vnc.TLSCertificate`、`vnc.AuthMatrix` | M-SET-2、M-SEC-2 |
 | 证书重新生成 | `vnc.DBusAPI`、`vnc.TLSCertificate`、`vnc.Settings` | M-SET-4 |
 | 密码认证（bcrypt、实时生效） | `vnc.DBusAPI`、`vnc.AuthMatrix`、`vnc.SettingsPassword` | — |
