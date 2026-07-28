@@ -167,42 +167,28 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # fps/bandwidth
 
 ## 4. Manual test cases
 
-Record each case as Pass / Fail / Blocked with notes. "Viewer" means a
-VeNCrypt-capable VNC client (TigerVNC recommended) unless stated otherwise.
+These are the cases the automated `vnc.*` suite cannot fully exercise: they
+need a human, a real third-party client, or physical hardware. Anything a test
+can check has been automated and removed from this section — the coverage
+matrix in section 5 shows where each function is covered. Record each case as
+Pass / Fail / Blocked with notes. "Viewer" means a VeNCrypt-capable VNC client
+(TigerVNC recommended) unless stated otherwise.
 
 ### 4.1 Settings UI
 
-**M-SET-1 — Enable/disable toggle** *(now automated — optional manual spot-check)*
-Covered by `vnc.Settings` (toggle round-trip + fingerprint shown), `vnc.DBusAPI`
-(listener opens/closes on enable/disable), and `vnc.RebootPersistence` (state
-survives a reboot). Run the steps below only for a hands-on UI sanity check.
-Precondition: logged in.
-1. Open Settings and locate the VNC / remote access section.
-2. Turn the toggle on. Expected: status becomes active; connection info
-   (IP:port) and the TLS fingerprint appear; a viewer can connect.
-3. Turn the toggle off. Expected: active viewer is disconnected; new
-   connections are refused; state persists across a reboot.
-
-**M-SET-2 — Fingerprint verification** *(automated — optional manual spot-check)*
-Covered by `vnc.Settings` and `vnc.TLSCertificate` (the fingerprint shown in Settings equals the D-Bus value and the certificate on the wire). Manual only to confirm a specific third-party viewer shows the same string.
-1. With VNC enabled, read the SHA-256 fingerprint in Settings.
-2. Connect with a viewer that displays the server certificate.
-   Expected: the fingerprints match exactly.
-
-**M-SET-3 — Password set and clear** *(automated — optional manual spot-check)*
-Covered by `vnc.SettingsPassword` (set via the dialog → daemon requires it), `vnc.AuthMatrix` (wrong refused / right accepted), and `vnc.DBusAPI` (clear).
-1. Set a password in Settings. Expected: a viewer now requires it; the wrong
-   password is refused; the right one connects.
-2. Clear the password. Expected: viewer connects without a password (TLS
-   still on).
-
-**M-SET-4 — Regenerate certificate** *(core automated; manual for the viewer-side warning)*
-Regeneration is covered by `vnc.Settings`, `vnc.TLSCertificate`, and `vnc.DBusAPI`. Manual only for a third-party viewer warning about the changed certificate and the Settings active-session warning.
-1. Note the current fingerprint; click regenerate.
-   Expected: a new fingerprint appears; a viewer that trusted the old
-   certificate warns about the change; Settings warns if sessions are active.
+**M-SET-4 — Certificate change is visible to a trusting viewer**
+Precondition: a viewer has connected before and trusted the certificate.
+1. In Settings, regenerate the certificate.
+   Expected: a new fingerprint appears and Settings warns if sessions are
+   active; on reconnect, the previously-trusting viewer warns that the server
+   certificate changed.
+(The regeneration itself is automated by `vnc.Settings`, `vnc.TLSCertificate`,
+and `vnc.DBusAPI`; only the third-party viewer's trust warning needs a human.)
 
 ### 4.2 OOBE flow
+
+The OOBE setup screen only appears when a VNC client is connected as OOBE
+finishes, so it cannot be reached by the automated suite.
 
 **M-OOBE-1 — Remote setup, keep enabled with password**
 Precondition: device freshly reset, VNC connectable during OOBE.
@@ -231,79 +217,40 @@ disabled by default.
 
 ### 4.3 Viewing and input
 
-**M-INP-1 — Pre-login control** *(automated — optional manual spot-check)*
-Covered by `vnc.LoginScreenInput` (drives the real boot login screen over VNC) and `vnc.LockScreen` (VNC-typed password at the lock screen); `vnc.CaptureKMS` proves the pre-login screen renders live.
-Precondition: device at the login/lock screen, VNC enabled.
-1. Connect and verify the login screen is rendered and updates live.
-2. Click into the password field, type a wrong password, press Enter.
-   Expected: clicks and keystrokes land correctly (dots appear, error shows);
-   pointer position matches the local screen.
-
-**M-INP-2 — In-session pointer parity** *(mostly automated; manual for drag)*
-Right/middle click and wheel are covered by `vnc.InputParity`; pointer/keys by `vnc.InputInjection`. Manual only for window drag and drag-select.
-Precondition: logged in, viewer connected.
-1. Right-click the desktop. Expected: context menu opens.
-2. Middle-click a link in the browser. Expected: opens in a new tab.
-3. Scroll with the wheel in a long page, both directions. Expected: smooth
-   scrolling.
-4. Drag a window by its title bar; drag-select text. Expected: drag works
-   without sticking or dropping.
+**M-INP-2 — Pointer drag and drag-select**
+Precondition: logged in, viewer connected. (Right/middle click and wheel are
+automated by `vnc.InputParity`; only drag remains manual.)
+1. Drag a window by its title bar. Expected: it follows the pointer without
+   sticking or dropping.
+2. Drag-select a range of text in an editor. Expected: the selection tracks
+   the drag from press to release.
 
 **M-INP-3 — Keyboard layouts and IME**
 Precondition: logged in, a non-US layout or CJK IME added on the DUT.
 1. Type letters, symbols, and shifted characters into a text field via VNC.
    Expected: characters match the DUT's active layout.
-2. Switch to the IME and compose text (e.g. pinyin → candidate selection).
+2. Switch to the IME and compose text (e.g. pinyin -> candidate selection).
    Expected: composition and candidate windows behave as with a local
    keyboard.
 
-**M-CLP-1 — Clipboard**
+**M-CLP-1 — Clipboard (device -> viewer direction)**
 Precondition: viewer with clipboard support (TigerVNC / noVNC clipboard
-panel).
-1. Copy text on the viewer side, paste into an editor on the DUT via VNC.
-2. Copy text on the DUT, check it arrives in the viewer clipboard.
-   Expected: both directions transfer plain text correctly (long text up to
-   ~1 MB; non-ASCII preserved with a client using the extended clipboard).
+panel). Viewer->device paste is automated by `vnc.Clipboard`; the
+device->viewer direction is not implemented in the daemon.
+1. Copy text on the DUT, then check the viewer's clipboard.
+   Expected: this direction does not transfer today — record as Blocked until
+   implemented. (When implemented: long text up to ~1 MB and non-ASCII should
+   be preserved with a client using the extended clipboard.)
 
-### 4.4 Displays and sessions
+### 4.4 Displays
 
-**M-DSP-1 — Display selection experience** *(core automated; manual for the visual/feel check)*
-Switching and geometry are covered by `vnc.MultiDisplay`. Manual only for judging image correctness and per-display input feel.
-Precondition: two displays connected, logged in.
-1. Using the display-selection interface (or the automated switch in
-   `vnc.MultiDisplay`), view each display in turn.
+**M-DSP-1 — Display selection experience**
+Precondition: two displays connected, logged in. (Enumeration and the switch
+itself are automated by `vnc.MultiDisplay`; this case judges the visual result
+and input feel.)
+1. Switch the captured display and view each display in turn.
    Expected: correct image on each; input lands on the display being viewed;
-   geometry changes are handled by the viewer without artifacts.
-
-**M-DSP-2 — Display hotplug** *(core automated; manual for a real physical unplug)*
-Covered by `vnc.DisplayHotplug` (forces the connector off/on via sysfs). Run manually only to confirm a real cable pull behaves the same.
-1. While viewing the external display, unplug it.
-   Expected: the session falls back to the remaining/primary display rather
-   than freezing or disconnecting.
-2. Re-plug the display. Expected: it reappears in the display list and can be
-   selected again.
-
-**M-SES-1 — Login/logout while viewing** *(core automated; manual for subjective quality)*
-The transition and daemon continuity are covered by `vnc.SessionTransition`. Manual only for the subjective view-quality change.
-1. Connect at the login screen, log in while watching remotely.
-   Expected: transition to the desktop is visible; brief quality change
-   (login-screen mode is lower fps) is acceptable; no permanent freeze or
-   disconnect; input works after the transition.
-2. Log out while connected. Expected: view returns to the login screen and
-   stays live; input works at the login screen.
-
-**M-SES-2 — Lock screen** *(automated — optional manual spot-check)*
-Covered by `vnc.LockScreen` (locks, serves a live lock-screen frame, unlocks via a VNC-typed password).
-Lock the session while a viewer is connected.
-Expected: lock screen is shown remotely; unlocking via VNC (password typing)
-works.
-
-**M-SES-3 — Suspend / resume** *(automated — optional manual spot-check)*
-Covered by `vnc.SuspendResume` (suspends with an RTC wake and confirms the daemon still serves after resume).
-1. With a viewer connected, suspend the DUT (close lid or power menu), then
-   resume it.
-   Expected: the daemon reattaches after resume — reconnecting the viewer
-   yields a live picture; the device did not fail to suspend because of VNC.
+   the viewer handles the geometry change without artifacts.
 
 ### 4.5 Clients, web access, discovery
 
@@ -318,40 +265,13 @@ Expected: VeNCrypt-capable clients work fully. Clients without VeNCrypt/TLS
 support must be *refused* unless "allow insecure connections" was enabled —
 that refusal is correct behavior, not a bug.
 
-**M-WEB-1 — Full noVNC session** *(core automated; manual for hands-on operation)*
-Covered by `vnc.NoVNCSession` and `vnc.NoVNCWeb`. Manual only for the noVNC clipboard panel and a hands-on operation pass.
-1. Browse to `https://<DUT_IP>:6080/vnc.html`, accept the self-signed
-   certificate warning.
-2. Connect, enter the password if set, operate the desktop (type, click,
-   scroll), use the noVNC clipboard panel, then disconnect.
-   Expected: full session works in the browser with no plugin.
-
-**M-NET-1 — mDNS discovery** *(automated — optional manual spot-check)*
-Covered by `vnc.NetworkBinding` (record present when enabled, withdrawn when disabled) and `x01` (propagation to another host).
-On a client with zeroconf/Bonjour browsing (e.g. `avahi-browse -rt
-_rfb._tcp`, or a mobile VNC app's discovery view), verify the device
-announces itself ("FydeOS VNC on <hostname>") with the right port when
-enabled, and the announcement disappears when disabled.
-
 **M-NET-2 — Network change**
 While enabled, switch the DUT between Wi-Fi and Ethernet (or change APs).
 Expected: the service re-binds to the new LAN address; Settings shows the
-updated address; a viewer can connect on the new address.
+updated address; a viewer can connect on the new address. (Runtime re-bind is
+a known product gap — record the actual behavior.)
 
-### 4.6 Security and performance
-
-**M-SEC-1 — Failed-authentication behavior** *(automated — optional manual spot-check)*
-Covered by `vnc.AuthAbuse` (repeated wrong passwords refused, daemon stays healthy) and `vnc.AuthMatrix`. Note: no per-IP throttling is implemented.
-With a password set, attempt several consecutive wrong-password logins, then
-the correct one.
-Expected: wrong attempts are always refused; the service stays up
-(no crash/DoS); note whether rapid retries are throttled.
-
-**M-SEC-2 — No plaintext on the wire** *(automated — optional manual spot-check)*
-Covered by `vnc.AuthMatrix` (LAN offers only VeNCrypt; a plaintext-only client is refused) and `vnc.TLSCertificate` (TLS mandatory, 1.1 rejected).
-With default settings (insecure mode off), attempt to connect with a client
-configured for unencrypted VNC only.
-Expected: connection is refused before any screen data is sent.
+### 4.6 Performance
 
 **M-PRF-1 — Latency and quality feel**
 On an idle LAN, with one viewer at native resolution:
@@ -375,7 +295,7 @@ On an idle LAN, with one viewer at native resolution:
 | Certificate regeneration | `vnc.DBusAPI`, `vnc.TLSCertificate`, `vnc.Settings` | M-SET-4 |
 | Password auth (bcrypt, live update) | `vnc.DBusAPI`, `vnc.AuthMatrix`, `vnc.SettingsPassword` | — |
 | Insecure-client mode (VncAuth/plain) | `vnc.AuthMatrix` | M-CLI-1 |
-| Loopback/web auth fast path | `vnc.AuthMatrix`, `vnc.NoVNCWeb` | M-WEB-1 |
+| Loopback/web auth fast path | `vnc.AuthMatrix`, `vnc.NoVNCWeb` | — |
 | LAN-only binding | `vnc.NetworkBinding` | M-NET-2 |
 | mDNS discovery | `vnc.NetworkBinding` (present + withdrawn); `x01` (external propagation) | — |
 | Pre-login (KMS) capture | `vnc.CaptureKMS`, `vnc.SessionTransition`, `vnc.LoginScreenInput` | — |
@@ -388,7 +308,7 @@ On an idle LAN, with one viewer at native resolution:
 | Clipboard (viewer→device paste) | `vnc.Clipboard` | M-CLP-1 (device→viewer push, not implemented) |
 | Multi-display enumeration/switch | `vnc.MultiDisplay` | M-DSP-1 |
 | Display hotplug | `vnc.DisplayHotplug` | — |
-| Logout/login/crash resilience | `vnc.SessionTransition` | M-SES-1 |
+| Logout/login/crash resilience | `vnc.SessionTransition` | — |
 | Lock screen | `vnc.LockScreen` | — |
 | Suspend/resume | `vnc.SuspendResume` | — |
 | Reboot persistence | `vnc.RebootPersistence` | — |
@@ -401,15 +321,17 @@ On an idle LAN, with one viewer at native resolution:
 | Auth abuse resilience | `vnc.AuthAbuse` | — |
 
 Notes:
-- What stays manual: IME/layout (M-INP-3), pointer drag (part of M-INP-2),
-  the device→viewer clipboard direction (M-CLP-1, not implemented in the
-  daemon), network change (M-NET-2), client compatibility with third-party
-  viewers (M-CLI-1), the
-  subjective latency/quality feel (M-PRF-1), and the OOBE setup screen
-  (M-OOBE-1…4). The OOBE screen only appears when a VNC client is connected as
-  OOBE finishes, so it is exercised through M-OOBE, not the automated suite.
-- Every other M-* case is automated; it stays in section 4 only as an optional
-  hands-on spot-check and is annotated with the `vnc.*` tests that cover it.
+- What genuinely needs a human (all that is left in section 4): the OOBE setup
+  screen (M-OOBE-1…4), IME / non-US layout (M-INP-3), pointer drag & drag-select
+  (M-INP-2), the device→viewer clipboard direction (M-CLP-1, not implemented),
+  the multi-display visual / input-feel check (M-DSP-1), the certificate-change
+  warning a trusting third-party viewer shows (M-SET-4), network change /
+  runtime re-bind (M-NET-2, a product gap), third-party client compatibility
+  (M-CLI-1), and the subjective latency / quality feel (M-PRF-1).
+- Every other former manual case — enable/disable, fingerprint, password,
+  pre-login & lock-screen input, session transitions, suspend/resume, mDNS,
+  auth abuse, no-plaintext, display hotplug, full noVNC session — is fully
+  automated and has been deleted from this section; see the matrix above.
 
 ---
 
