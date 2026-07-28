@@ -10,9 +10,10 @@ covers three complementary methods:
 - **External-observer tests (shell suite)** — a small set of checks that only
   make sense from a separate host on the DUT's LAN: mDNS propagation, concurrent
   viewers, and host-side performance.
-- **Manual tests** — cases that need a human at the screen or a real VNC
-  client: Settings look-and-feel, OOBE flow, input feel, clipboard, IME, session
-  transitions, and client compatibility.
+- **Manual tests** — the few cases that need a human, a real third-party
+  client, or physical hardware: the OOBE flow, input feel and IME, the
+  in-development clipboard direction, display experience, client
+  compatibility, network change, and performance feel.
 
 Together the `vnc.*` Tast tests, the `x0*` shell checks, and the manual cases
 (`M-*`) cover all VNC functions. The coverage matrix in section 5 maps every
@@ -37,7 +38,7 @@ control a FydeOS device, with no internet dependency. Functions under test:
 | Web access | Built-in noVNC client served over HTTPS on port 6080 |
 | Multi-display | Enumerate displays, choose which display a session views |
 | Resilience | Logout / UI crash / login transitions without service loss; suspend/resume |
-| Performance | Idle < 1% CPU, streaming < 15% CPU, LAN input latency < 80 ms |
+| Performance | Idle < 1% CPU, streaming < 15% CPU, LAN input latency < 80 ms (design targets) |
 
 ---
 
@@ -84,6 +85,10 @@ VNC_PORT=5900
 NOVNC_PORT=6080
 ```
 
+> Note: if the DUT sits behind NAT / port forwarding (only SSH reachable),
+> `x02`/`x03` automatically tunnel the VNC ports over SSH; `x01`'s discovery
+> and reachability checks need a real LAN path and warn otherwise.
+
 ---
 
 ## 3. Automated tests
@@ -98,26 +103,29 @@ tast run <dut-ip>[:ssh-port] 'vnc.*'
 ```
 
 Results, per-test logs, and failure screenshots are collected by Tast in its
-results directory. The tests are state-safe: each restores a clean, no-password
-state, and the session-transition test restores the login screen.
+results directory. Passwords and the enabled state are restored by each test,
+and the session-transition test restores the login screen; note that
+`vnc.LoginScreenInput` leaves a local account behind (cleared by the next
+Chrome-based test) and the two host-driven tests reboot / suspend the device.
 
 | Test | What it verifies |
 |---|---|
+| `vnc.Sanity` | The image carries the VNC feature: upstart jobs and the daemon binary present |
 | `vnc.Lifecycle` | Both system jobs running; daemon sandboxed as the `fydeos-vnc` user; state dir permissions; D-Bus name owned; automatic respawn after a kill and D-Bus re-claim |
 | `vnc.DBusAPI` | `GetStatus` fields; enable/disable round-trip closes/opens the RFB port; `StatusChanged` signal; `ListDisplays` JSON; typed error for a bogus `SetCaptureDisplay`; password files (mode 0600, bcrypt); `RegenerateCertificate` |
 | `vnc.NetworkBinding` | Bound address is a real, up LAN interface (RFC-1918/link-local); RFB + noVNC listeners; teardown on disable and restore on enable; avahi mDNS announcement present when enabled and withdrawn when disabled |
-| `vnc.TLSCertificate` | cert/key modes; RSA-4096 self-signed; fingerprint identical across D-Bus and the RFB wire; TLS 1.1 rejected / 1.2 accepted; regeneration is live without restart |
+| `vnc.TLSCertificate` | cert/key file permissions; RSA-4096 self-signed; fingerprint identical across D-Bus and the RFB wire; TLS 1.1 rejected / 1.2 accepted; regeneration is live without restart |
 | `vnc.AuthMatrix` | LAN offers only VeNCrypt (X509None without password, X509Plain with); wrong password rejected; changes effective immediately; loopback SecTypeNone / VeNCrypt Plain; insecure-mode VncAuth (DES) |
 | `vnc.CaptureKMS` | Pre-login KMS path: KMS mode, width padded to ×4, a decodable non-blank frame |
 | `vnc.CaptureChrome` | Post-login FrameSink path: a solid-colour page is reproduced in the captured framebuffer (closed loop) |
 | `vnc.InputInjection` | RFB pointer and key events injected over the wire produce the expected reaction in the Chrome session |
 | `vnc.Settings` | The os-settings VNC card drives the daemon: enable toggle round-trip, fingerprint display matches D-Bus, certificate regeneration |
-| `vnc.NoVNCWeb` | noVNC page served over HTTPS with the daemon certificate; plain HTTP handled per policy; websockify backend and WebSocket upgrade |
+| `vnc.NoVNCWeb` | noVNC page served over HTTPS with the daemon certificate; websockify backend; the plain-HTTP-policy and WebSocket-upgrade checks are informational (logged, not enforced) |
 | `vnc.SessionTransition` | KMS (pre-login) → FrameSink (login) → KMS (logout) with the daemon never dropping and frames served throughout |
 | `vnc.MultiDisplay` | Display inventory; switching the captured display changes the framebuffer to that display's geometry and back; unknown-id error path (switching checks skip with one display) |
-| `vnc.Performance` | Daemon CPU idle (< 1% target) and while a viewer streams; reported to the perf pipeline |
+| `vnc.Performance` | Daemon CPU while idle and while a viewer streams, reported to the perf pipeline with generous regression ceilings (the < 1% / 15% design targets are informational: the Raw-only test client is not comparable to a Tight viewer) |
 | `vnc.InputParity` | Right-click opens a context menu, middle-click opens a new tab, and the wheel scrolls — all injected over RFB |
-| `vnc.Clipboard` | A viewer's RFB cut-text is pasted into the focused field (device→viewer push is not wired) |
+| `vnc.Clipboard` | A viewer's RFB cut-text is pasted into the focused field; device→viewer push (legacy + Extended Clipboard, UTF-8) — feature under development |
 | `vnc.AuthAbuse` | Repeated wrong passwords are refused and the daemon stays healthy (no per-IP backoff is implemented) |
 | `vnc.SettingsPassword` | Setting a password through the os-settings dialog makes the daemon require it |
 | `vnc.LockScreen` | While locked the daemon serves the lock screen, and VNC-injected keystrokes drive it: wrong password rejected, correct password unlocks |
@@ -225,11 +233,11 @@ Precondition: logged in, a non-US layout or CJK IME added on the DUT.
 **M-CLP-1 — Clipboard (device -> viewer direction)**
 Precondition: viewer with clipboard support (TigerVNC / noVNC clipboard
 panel). Viewer->device paste is automated by `vnc.Clipboard`; the
-device->viewer direction is not implemented in the daemon.
+device->viewer direction is under development.
 1. Copy text on the DUT, then check the viewer's clipboard.
-   Expected: this direction does not transfer today — record as Blocked until
-   implemented. (When implemented: long text up to ~1 MB and non-ASCII should
-   be preserved with a client using the extended clipboard.)
+   Expected: the copied text reaches both a legacy and an Extended Clipboard
+   viewer (long text up to ~1 MB; non-ASCII preserved with the extended
+   clipboard). The feature is under development — record the actual behavior.
 
 ### 4.3 Displays
 
@@ -294,7 +302,7 @@ On an idle LAN, with one viewer at native resolution:
 | Pre-login / lock-screen input | `vnc.LockScreen`, `vnc.LoginScreenInput` | — |
 | In-session input (buttons, wheel, keys) | `vnc.InputInjection`, `vnc.InputParity` | M-INP-2 (drag), M-INP-3 |
 | IME / keyboard layout | — | M-INP-3 |
-| Clipboard (viewer→device paste) | `vnc.Clipboard` | M-CLP-1 (device→viewer push, not implemented) |
+| Clipboard (viewer→device paste) | `vnc.Clipboard` | M-CLP-1 (device→viewer push, under development) |
 | Multi-display enumeration/switch | `vnc.MultiDisplay` | M-DSP-1 |
 | Display hotplug | `vnc.DisplayHotplug` | — |
 | Logout/login/crash resilience | `vnc.SessionTransition` | — |
@@ -304,7 +312,7 @@ On an idle LAN, with one viewer at native resolution:
 | noVNC web access | `vnc.NoVNCWeb`, `vnc.NoVNCSession`; `x01`, `x03` | — |
 | OOBE setup screen | — | M-OOBE-1…4 |
 | Concurrent viewers | `x02` | M-CLI-1 |
-| Client compatibility | protocol level: `vnc.AuthMatrix`, `vnc.CaptureChrome` | M-CLI-1 |
+| Client compatibility | protocol level: `vnc.AuthMatrix` + two independent RFB client implementations | M-CLI-1 |
 | CPU targets | `vnc.Performance` | M-PRF-1 |
 | Host-side latency/throughput | `x03` | M-PRF-1 |
 | Auth abuse resilience | `vnc.AuthAbuse` | — |
@@ -312,7 +320,7 @@ On an idle LAN, with one viewer at native resolution:
 Notes:
 - What genuinely needs a human (all that is left in section 4): the OOBE setup
   screen (M-OOBE-1…4), IME / non-US layout (M-INP-3), pointer drag & drag-select
-  (M-INP-2), the device→viewer clipboard direction (M-CLP-1, not implemented),
+  (M-INP-2), the device→viewer clipboard direction (M-CLP-1, under development),
   the multi-display visual / input-feel check (M-DSP-1), network change /
   runtime re-bind (M-NET-2, a product gap), third-party client compatibility
   (M-CLI-1), and the subjective latency / quality feel (M-PRF-1).
@@ -320,13 +328,15 @@ Notes:
   certificate regeneration, pre-login & lock-screen input, session transitions, suspend/resume, mDNS,
   auth abuse, no-plaintext, display hotplug, full noVNC session — is fully
   automated and has been deleted from this section; see the matrix above.
+- Tight encoding is exercised only by real viewers (the noVNC session and
+  M-CLI-1); the automated RFB test clients decode Raw.
 
 ---
 
 ## 6. Recommended test passes
 
-- **Smoke (automated, ≈4 min)**: `tast run <dut> 'vnc.Lifecycle vnc.DBusAPI
-  vnc.CaptureKMS'` — service up, API sane, pixels flowing.
+- **Smoke (automated, ≈4 min)**: `tast run <dut> vnc.Lifecycle vnc.DBusAPI
+  vnc.CaptureKMS` — service up, API sane, pixels flowing.
 - **Full automated (24 tests, ≈15–25 min)**: `tast run <dut> 'vnc.*'` on a
   test-image DUT (attach a second display for the multi-display / hotplug
   checks), then `./run_all.sh` from a host on the DUT's LAN for the external

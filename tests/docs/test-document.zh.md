@@ -7,8 +7,9 @@
   输入注入、设置界面、多显示器、noVNC 网页访问、会话切换以及 CPU。
 - **外部观察者测试（shell 套件）** —— 一小组只有从 DUT 所在局域网的另一台
   主机才有意义的检查：mDNS 传播、并发查看器、主机侧性能。
-- **手动测试** —— 需要人工在屏幕前操作或使用真实 VNC 客户端的用例：
-  设置界面、OOBE 流程、输入手感、剪贴板、输入法、会话切换、客户端兼容性。
+- **手动测试** —— 少数需要人工、真实第三方客户端或物理硬件的用例：
+  OOBE 流程、输入手感与输入法、开发中的剪贴板方向、显示器体验、
+  客户端兼容性、网络切换、性能体验。
 
 `vnc.*` Tast 测试、`x0*` shell 检查与手动用例（M-\*）合在一起覆盖全部
 VNC 功能。第 5 节的覆盖矩阵列出了每个功能与用例的对应关系。
@@ -32,7 +33,7 @@ FydeOS VNC 允许同一局域网内任何符合标准的 VNC 客户端查看并�
 | 网页访问 | 通过 HTTPS 在 6080 端口提供内置 noVNC 客户端 |
 | 多显示器 | 枚举显示器、选择会话查看哪个显示器 |
 | 健壮性 | 登出 / UI 崩溃 / 登录切换时服务不中断；休眠唤醒 |
-| 性能 | 空闲 CPU < 1%、串流 CPU < 15%、局域网输入延迟 < 80 ms |
+| 性能 | 空闲 CPU < 1%、串流 CPU < 15%、局域网输入延迟 < 80 ms（设计指标） |
 
 ---
 
@@ -93,11 +94,14 @@ NOVNC_PORT=6080
 tast run <dut-ip>[:ssh-port] 'vnc.*'
 ```
 
-结果、每条测试的日志与失败截图由 Tast 收集到其结果目录中。测试对设备
-状态是安全的：每条都会恢复无密码的干净状态，会话切换测试会恢复登录屏。
+结果、每条测试的日志与失败截图由 Tast 收集到其结果目录中。每条测试都会
+恢复密码与启用状态，会话切换测试会恢复登录屏；注意 `vnc.LoginScreenInput`
+会留下一个本地帐号（下一个基于 Chrome 的测试会清除），两条主机驱动的测试
+会重启/休眠设备。
 
 | 测试 | 验证内容 |
 |---|---|
+| `vnc.Sanity` | 镜像自带 VNC 功能：upstart 任务与守护进程二进制存在 |
 | `vnc.Lifecycle` | 两个系统服务均在运行；守护进程以 `fydeos-vnc` 用户沙箱化运行；状态目录权限；持有 D-Bus 名称；强杀后自动重启并重新持有 D-Bus 名称 |
 | `vnc.DBusAPI` | `GetStatus` 字段；开关往返会关闭/打开 RFB 端口；`StatusChanged` 信号；`ListDisplays` JSON；非法 `SetCaptureDisplay` 返回带类型的错误；密码文件（0600、bcrypt）；`RegenerateCertificate` |
 | `vnc.NetworkBinding` | 绑定地址为真实、在线的局域网接口（RFC-1918/链路本地）；RFB + noVNC 监听；关闭时撤销、开启时恢复；avahi mDNS 公告（启用时存在、禁用时撤销） |
@@ -107,12 +111,12 @@ tast run <dut-ip>[:ssh-port] 'vnc.*'
 | `vnc.CaptureChrome` | 登录后 FrameSink 路径：纯色页面在捕获的帧缓冲中被还原（闭环） |
 | `vnc.InputInjection` | 经线路注入的 RFB 指针与按键事件在 Chrome 会话中产生预期反应 |
 | `vnc.Settings` | os-settings VNC 卡片驱动守护进程：开关往返、指纹显示与 D-Bus 一致、证书重新生成 |
-| `vnc.NoVNCWeb` | 以守护进程证书通过 HTTPS 提供 noVNC 页面；按策略处理明文 HTTP；websockify 后端与 WebSocket 升级 |
+| `vnc.NoVNCWeb` | 以守护进程证书通过 HTTPS 提供 noVNC 页面；websockify 后端；明文 HTTP 策略与 WebSocket 升级为观察性检查（记录、不判失败） |
 | `vnc.SessionTransition` | KMS（登录前）→ FrameSink（登录）→ KMS（登出），守护进程全程不掉线且持续提供画面 |
 | `vnc.MultiDisplay` | 显示器清单；切换捕获显示器后帧缓冲变为该显示器几何尺寸并可切回；未知 id 错误路径（仅一台显示器时跳过切换检查） |
-| `vnc.Performance` | 守护进程 CPU 空闲（< 1% 指标）与查看器串流时的占用；上报到 perf 管线 |
+| `vnc.Performance` | 守护进程空闲与查看器串流时的 CPU，按宽松的回归上限上报 perf 管线（< 1% / 15% 设计指标仅供参考：Raw-only 测试客户端与 Tight 查看器不可直接比较） |
 | `vnc.InputParity` | 经 RFB 注入的右键弹出上下文菜单、中键打开新标签页、滚轮滚动 |
-| `vnc.Clipboard` | 查看器的 RFB cut-text 被粘贴进聚焦的输入框（设备→查看器方向未接线） |
+| `vnc.Clipboard` | 查看器的 RFB cut-text 被粘贴进聚焦的输入框；设备→查看器推送（legacy + Extended Clipboard、UTF-8）—— 功能开发中 |
 | `vnc.AuthAbuse` | 反复错误密码均被拒且守护进程保持健康（未实现按 IP 退避） |
 | `vnc.SettingsPassword` | 经 os-settings 密码对话框设置密码后守护进程要求密码 |
 | `vnc.LockScreen` | 锁定期间守护进程提供锁屏画面，且经 VNC 注入的击键可驱动锁屏：错误密码被拒、正确密码解锁 |
@@ -210,10 +214,10 @@ VNC 设置屏仅在 OOBE 结束时有 VNC 客户端连接的情况下才出现�
 
 **M-CLP-1 —— 剪贴板（设备 → 查看器方向）**
 前置条件：查看器支持剪贴板（TigerVNC / noVNC 剪贴板面板）。查看器→设备
-方向的粘贴已由 `vnc.Clipboard` 覆盖；设备→查看器方向守护进程尚未实现。
+方向的粘贴已由 `vnc.Clipboard` 覆盖；设备→查看器方向功能开发中。
 1. 在 DUT 上复制文本，然后查看查看器的剪贴板。
-   预期：当前该方向不传输 —— 记为受阻，直至实现。（实现后：长文本可达约
-   1 MB，使用扩展剪贴板的客户端应保留非 ASCII 字符。）
+   预期：复制的文本到达 legacy 与 Extended Clipboard 两类查看器（长文本可达
+   约 1 MB；扩展剪贴板保留非 ASCII 字符）。功能开发中 —— 记录实际行为。
 
 ### 4.3 显示器
 
@@ -275,7 +279,7 @@ VNC 设置屏仅在 OOBE 结束时有 VNC 客户端连接的情况下才出现�
 | 登录前 / 锁屏输入 | `vnc.LockScreen`、`vnc.LoginScreenInput` | — |
 | 登录后输入（按键、滚轮、键盘） | `vnc.InputInjection`、`vnc.InputParity` | M-INP-2（拖拽）、M-INP-3 |
 | 输入法 / 键盘布局 | — | M-INP-3 |
-| 剪贴板（查看器→设备 粘贴） | `vnc.Clipboard` | M-CLP-1（设备→查看器 推送，未实现） |
+| 剪贴板（查看器→设备 粘贴） | `vnc.Clipboard` | M-CLP-1（设备→查看器 推送，开发中） |
 | 多显示器枚举/切换 | `vnc.MultiDisplay` | M-DSP-1 |
 | 显示器热插拔 | `vnc.DisplayHotplug` | — |
 | 登出/登录/崩溃健壮性 | `vnc.SessionTransition` | — |
@@ -285,7 +289,7 @@ VNC 设置屏仅在 OOBE 结束时有 VNC 客户端连接的情况下才出现�
 | noVNC 网页访问 | `vnc.NoVNCWeb`、`vnc.NoVNCSession`；`x01`、`x03` | — |
 | OOBE 设置屏 | — | M-OOBE-1…4 |
 | 并发查看器 | `x02` | M-CLI-1 |
-| 客户端兼容性 | 协议层：`vnc.AuthMatrix`、`vnc.CaptureChrome` | M-CLI-1 |
+| 客户端兼容性 | 协议层：`vnc.AuthMatrix` + 两个独立实现的 RFB 客户端 | M-CLI-1 |
 | CPU 指标 | `vnc.Performance` | M-PRF-1 |
 | 主机侧延迟/吞吐 | `x03` | M-PRF-1 |
 | 认证滥用防护 | `vnc.AuthAbuse` | — |
@@ -293,18 +297,20 @@ VNC 设置屏仅在 OOBE 结束时有 VNC 客户端连接的情况下才出现�
 说明：
 - 真正需要人工的项（第 4 节仅剩这些）：OOBE 设置屏（M-OOBE-1…4）、输入法/
   非美式布局（M-INP-3）、指针拖拽与拖选（M-INP-2）、剪贴板设备→查看器方向
-  （M-CLP-1，未实现）、多显示器视觉/输入体验核对（M-DSP-1）、网络切换/运行时重新绑定
+  （M-CLP-1，开发中）、多显示器视觉/输入体验核对（M-DSP-1）、网络切换/运行时重新绑定
   （M-NET-2，产品缺口）、第三方客户端兼容性（M-CLI-1）、主观延迟/画质体验（M-PRF-1）。
 - 其余原手动用例 —— 开关、指纹、密码、证书重新生成、登录前与锁屏输入、会话切换、休眠/
   唤醒、mDNS、认证滥用、无明文、显示器热插拔、完整 noVNC 会话 —— 均已完全
   自动化并从本节删除；见上方矩阵。
+- Tight 编码仅由真实查看器（noVNC 会话与 M-CLI-1）实际使用；自动化 RFB
+  测试客户端仅解码 Raw。
 
 ---
 
 ## 6. 建议的测试轮次
 
-- **冒烟测试（约 4 分钟，自动化）**：`tast run <dut> 'vnc.Lifecycle
-  vnc.DBusAPI vnc.CaptureKMS'` —— 服务在线、API 正常、画面可达。
+- **冒烟测试（约 4 分钟，自动化）**：`tast run <dut> vnc.Lifecycle
+  vnc.DBusAPI vnc.CaptureKMS` —— 服务在线、API 正常、画面可达。
 - **完整自动化（24 个测试，约 15–25 分钟）**：对 test-image 的 DUT 运行
   `tast run <dut> 'vnc.*'`（多显示器/热插拔检查需接入第二显示器），再从
   DUT 所在局域网的主机运行 `./run_all.sh` 完成外部检查。包含重启、休眠/唤醒
