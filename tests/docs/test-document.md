@@ -222,20 +222,6 @@ Precondition: logged in, a non-US layout or CJK IME added on the DUT.
    Expected: composition and candidate windows behave as with a local
    keyboard.
 
-**M-CLP-1 — Confidential clipboard is not pushed**
-Precondition: logged in, a viewer connected, a password saved in the DUT's
-password manager. (Clipboard transfer itself — both directions, connect-time
-sync, UTF-8, and a ~1 MB payload — is automated by `vnc.Clipboard`. Only this
-security check needs a human: copying a stored password requires the
-device-authentication dialog, which cannot be scripted.)
-1. In the password manager, copy a saved password (complete the
-   authentication prompt).
-   Expected: the password is NOT pushed to any connected viewer — the
-   viewer's clipboard keeps its previous contents.
-2. Copy ordinary text afterwards.
-   Expected: it is pushed normally, proving the filter is content-specific
-   and not a stuck state.
-
 ### 4.3 Clients, web access, discovery
 
 **M-CLI-1 — Client compatibility matrix**
@@ -290,7 +276,6 @@ On an idle LAN, with one viewer at native resolution:
 | In-session input (buttons, wheel, drag, keys) | `vnc.InputInjection`, `vnc.InputParity` | M-INP-3 |
 | IME / keyboard layout | — | M-INP-3 |
 | Clipboard (both directions) | `vnc.Clipboard` (viewer→device paste; device→viewer legacy + Extended Clipboard, connect-time sync, UTF-8, ~1 MB payload) | — |
-| Confidential clipboard filtered | — (needs the un-scriptable device-auth dialog; a Chrome-side unit test is the automated route) | M-CLP-1 |
 | Multi-display enumeration/switch/content/input | `vnc.MultiDisplay` | — |
 | Display hotplug | `vnc.DisplayHotplug` | — |
 | Logout/login/crash resilience | `vnc.SessionTransition` | — |
@@ -307,15 +292,15 @@ On an idle LAN, with one viewer at native resolution:
 
 Notes:
 - What genuinely needs a human (all that is left in section 4): the OOBE setup
-  screen (M-OOBE-1…4), IME / non-US layout (M-INP-3), the confidential-clipboard check (M-CLP-1, which needs the
-  device-authentication dialog),
-  network change /
+  screen (M-OOBE-1…4), IME / non-US layout (M-INP-3), network change /
   runtime re-bind (M-NET-2, a product gap), third-party client compatibility
   (M-CLI-1), and the subjective latency / quality feel (M-PRF-1).
 - Every other former manual case — enable/disable, fingerprint, password,
-  certificate regeneration, pre-login & lock-screen input, session transitions, suspend/resume, mDNS,
-  auth abuse, no-plaintext, display hotplug, full noVNC session — is fully
-  automated and has been deleted from this section; see the matrix above.
+  certificate regeneration, pre-login & lock-screen input, session
+  transitions, suspend/resume, mDNS, auth abuse, no-plaintext, display
+  hotplug, full noVNC session, pointer drag, multi-display content/input, and
+  clipboard (both directions) — is fully automated and has been deleted from
+  this section; see the matrix above.
 - Tight encoding is exercised only by real viewers (the noVNC session and
   M-CLI-1); the automated RFB test clients decode Raw.
 
