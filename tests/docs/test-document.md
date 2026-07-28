@@ -105,7 +105,7 @@ state, and the session-transition test restores the login screen.
 |---|---|
 | `vnc.Lifecycle` | Both system jobs running; daemon sandboxed as the `fydeos-vnc` user; state dir permissions; D-Bus name owned; automatic respawn after a kill and D-Bus re-claim |
 | `vnc.DBusAPI` | `GetStatus` fields; enable/disable round-trip closes/opens the RFB port; `StatusChanged` signal; `ListDisplays` JSON; typed error for a bogus `SetCaptureDisplay`; password files (mode 0600, bcrypt); `RegenerateCertificate` |
-| `vnc.NetworkBinding` | Bound address is a real, up LAN interface (RFC-1918/link-local); RFB + noVNC listeners; teardown on disable and restore on enable; avahi mDNS registration |
+| `vnc.NetworkBinding` | Bound address is a real, up LAN interface (RFC-1918/link-local); RFB + noVNC listeners; teardown on disable and restore on enable; avahi mDNS announcement present when enabled and withdrawn when disabled |
 | `vnc.TLSCertificate` | cert/key modes; RSA-4096 self-signed; fingerprint identical across D-Bus and the RFB wire; TLS 1.1 rejected / 1.2 accepted; regeneration is live without restart |
 | `vnc.AuthMatrix` | LAN offers only VeNCrypt (X509None without password, X509Plain with); wrong password rejected; changes effective immediately; loopback SecTypeNone / VeNCrypt Plain; insecure-mode VncAuth (DES) |
 | `vnc.CaptureKMS` | Pre-login KMS path: KMS mode, width padded to ×4, a decodable non-blank frame |
@@ -358,7 +358,7 @@ On an idle LAN, with one viewer at native resolution:
 | Insecure-client mode (VncAuth/plain) | `vnc.AuthMatrix` | M-CLI-1 |
 | Loopback/web auth fast path | `vnc.AuthMatrix`, `vnc.NoVNCWeb` | M-WEB-1 |
 | LAN-only binding | `vnc.NetworkBinding` | M-NET-2 |
-| mDNS discovery | `vnc.NetworkBinding` (registration); `x01` (propagation) | M-NET-1 |
+| mDNS discovery | `vnc.NetworkBinding` (present + withdrawn); `x01` (external propagation) | — |
 | Pre-login (KMS) capture | `vnc.CaptureKMS`, `vnc.SessionTransition` | M-INP-1 |
 | In-session (compositor) capture | `vnc.CaptureChrome` | M-PRF-1 |
 | Damage/update stream, fps | `vnc.CaptureChrome`, `vnc.Performance`; `x03` | M-PRF-1 |

@@ -100,7 +100,7 @@ tast run <dut-ip>[:ssh-port] 'vnc.*'
 |---|---|
 | `vnc.Lifecycle` | 两个系统服务均在运行；守护进程以 `fydeos-vnc` 用户沙箱化运行；状态目录权限；持有 D-Bus 名称；强杀后自动重启并重新持有 D-Bus 名称 |
 | `vnc.DBusAPI` | `GetStatus` 字段；开关往返会关闭/打开 RFB 端口；`StatusChanged` 信号；`ListDisplays` JSON；非法 `SetCaptureDisplay` 返回带类型的错误；密码文件（0600、bcrypt）；`RegenerateCertificate` |
-| `vnc.NetworkBinding` | 绑定地址为真实、在线的局域网接口（RFC-1918/链路本地）；RFB + noVNC 监听；关闭时撤销、开启时恢复；avahi mDNS 注册 |
+| `vnc.NetworkBinding` | 绑定地址为真实、在线的局域网接口（RFC-1918/链路本地）；RFB + noVNC 监听；关闭时撤销、开启时恢复；avahi mDNS 公告（启用时存在、禁用时撤销） |
 | `vnc.TLSCertificate` | 证书/私钥权限；RSA-4096 自签名；D-Bus 与 RFB 线上指纹一致；拒绝 TLS 1.1、接受 1.2；重新生成无需重启即生效 |
 | `vnc.AuthMatrix` | 局域网只提供 VeNCrypt（无密码 X509None、有密码 X509Plain）；错误密码被拒；改密码立即生效；回环 SecTypeNone / VeNCrypt Plain；不安全模式 VncAuth（DES） |
 | `vnc.CaptureKMS` | 登录前 KMS 路径：KMS 模式、宽度按 4 对齐、可解码且非空白的帧 |
@@ -332,7 +332,7 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 | 不安全客户端模式（VncAuth/明文） | `vnc.AuthMatrix` | M-CLI-1 |
 | 回环/网页认证快速通道 | `vnc.AuthMatrix`、`vnc.NoVNCWeb` | M-WEB-1 |
 | 仅绑定局域网 | `vnc.NetworkBinding` | M-NET-2 |
-| mDNS 发现 | `vnc.NetworkBinding`（注册）；`x01`（传播） | M-NET-1 |
+| mDNS 发现 | `vnc.NetworkBinding`（出现+撤销）；`x01`（外部传播） | — |
 | 登录前（KMS）捕获 | `vnc.CaptureKMS`、`vnc.SessionTransition` | M-INP-1 |
 | 登录后（合成器）捕获 | `vnc.CaptureChrome` | M-PRF-1 |
 | 增量更新流、帧率 | `vnc.CaptureChrome`、`vnc.Performance`；`x03` | M-PRF-1 |
