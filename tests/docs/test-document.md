@@ -183,18 +183,21 @@ Precondition: logged in.
 3. Turn the toggle off. Expected: active viewer is disconnected; new
    connections are refused; state persists across a reboot.
 
-**M-SET-2 — Fingerprint verification**
+**M-SET-2 — Fingerprint verification** *(automated — optional manual spot-check)*
+Covered by `vnc.Settings` and `vnc.TLSCertificate` (the fingerprint shown in Settings equals the D-Bus value and the certificate on the wire). Manual only to confirm a specific third-party viewer shows the same string.
 1. With VNC enabled, read the SHA-256 fingerprint in Settings.
 2. Connect with a viewer that displays the server certificate.
    Expected: the fingerprints match exactly.
 
-**M-SET-3 — Password set and clear**
+**M-SET-3 — Password set and clear** *(automated — optional manual spot-check)*
+Covered by `vnc.SettingsPassword` (set via the dialog → daemon requires it), `vnc.AuthMatrix` (wrong refused / right accepted), and `vnc.DBusAPI` (clear).
 1. Set a password in Settings. Expected: a viewer now requires it; the wrong
    password is refused; the right one connects.
 2. Clear the password. Expected: viewer connects without a password (TLS
    still on).
 
-**M-SET-4 — Regenerate certificate**
+**M-SET-4 — Regenerate certificate** *(core automated; manual for the viewer-side warning)*
+Regeneration is covered by `vnc.Settings`, `vnc.TLSCertificate`, and `vnc.DBusAPI`. Manual only for a third-party viewer warning about the changed certificate and the Settings active-session warning.
 1. Note the current fingerprint; click regenerate.
    Expected: a new fingerprint appears; a viewer that trusted the old
    certificate warns about the change; Settings warns if sessions are active.
@@ -228,14 +231,16 @@ disabled by default.
 
 ### 4.3 Viewing and input
 
-**M-INP-1 — Pre-login control**
+**M-INP-1 — Pre-login control** *(automated — optional manual spot-check)*
+Covered by `vnc.LoginScreenInput` (drives the real boot login screen over VNC) and `vnc.LockScreen` (VNC-typed password at the lock screen); `vnc.CaptureKMS` proves the pre-login screen renders live.
 Precondition: device at the login/lock screen, VNC enabled.
 1. Connect and verify the login screen is rendered and updates live.
 2. Click into the password field, type a wrong password, press Enter.
    Expected: clicks and keystrokes land correctly (dots appear, error shows);
    pointer position matches the local screen.
 
-**M-INP-2 — In-session pointer parity**
+**M-INP-2 — In-session pointer parity** *(mostly automated; manual for drag)*
+Right/middle click and wheel are covered by `vnc.InputParity`; pointer/keys by `vnc.InputInjection`. Manual only for window drag and drag-select.
 Precondition: logged in, viewer connected.
 1. Right-click the desktop. Expected: context menu opens.
 2. Middle-click a link in the browser. Expected: opens in a new tab.
@@ -262,21 +267,24 @@ panel).
 
 ### 4.4 Displays and sessions
 
-**M-DSP-1 — Display selection experience**
+**M-DSP-1 — Display selection experience** *(core automated; manual for the visual/feel check)*
+Switching and geometry are covered by `vnc.MultiDisplay`. Manual only for judging image correctness and per-display input feel.
 Precondition: two displays connected, logged in.
 1. Using the display-selection interface (or the automated switch in
    `vnc.MultiDisplay`), view each display in turn.
    Expected: correct image on each; input lands on the display being viewed;
    geometry changes are handled by the viewer without artifacts.
 
-**M-DSP-2 — Display hotplug**
+**M-DSP-2 — Display hotplug** *(core automated; manual for a real physical unplug)*
+Covered by `vnc.DisplayHotplug` (forces the connector off/on via sysfs). Run manually only to confirm a real cable pull behaves the same.
 1. While viewing the external display, unplug it.
    Expected: the session falls back to the remaining/primary display rather
    than freezing or disconnecting.
 2. Re-plug the display. Expected: it reappears in the display list and can be
    selected again.
 
-**M-SES-1 — Login/logout while viewing**
+**M-SES-1 — Login/logout while viewing** *(core automated; manual for subjective quality)*
+The transition and daemon continuity are covered by `vnc.SessionTransition`. Manual only for the subjective view-quality change.
 1. Connect at the login screen, log in while watching remotely.
    Expected: transition to the desktop is visible; brief quality change
    (login-screen mode is lower fps) is acceptable; no permanent freeze or
@@ -284,12 +292,14 @@ Precondition: two displays connected, logged in.
 2. Log out while connected. Expected: view returns to the login screen and
    stays live; input works at the login screen.
 
-**M-SES-2 — Lock screen**
+**M-SES-2 — Lock screen** *(automated — optional manual spot-check)*
+Covered by `vnc.LockScreen` (locks, serves a live lock-screen frame, unlocks via a VNC-typed password).
 Lock the session while a viewer is connected.
 Expected: lock screen is shown remotely; unlocking via VNC (password typing)
 works.
 
-**M-SES-3 — Suspend / resume**
+**M-SES-3 — Suspend / resume** *(automated — optional manual spot-check)*
+Covered by `vnc.SuspendResume` (suspends with an RTC wake and confirms the daemon still serves after resume).
 1. With a viewer connected, suspend the DUT (close lid or power menu), then
    resume it.
    Expected: the daemon reattaches after resume — reconnecting the viewer
@@ -308,14 +318,16 @@ Expected: VeNCrypt-capable clients work fully. Clients without VeNCrypt/TLS
 support must be *refused* unless "allow insecure connections" was enabled —
 that refusal is correct behavior, not a bug.
 
-**M-WEB-1 — Full noVNC session**
+**M-WEB-1 — Full noVNC session** *(core automated; manual for hands-on operation)*
+Covered by `vnc.NoVNCSession` and `vnc.NoVNCWeb`. Manual only for the noVNC clipboard panel and a hands-on operation pass.
 1. Browse to `https://<DUT_IP>:6080/vnc.html`, accept the self-signed
    certificate warning.
 2. Connect, enter the password if set, operate the desktop (type, click,
    scroll), use the noVNC clipboard panel, then disconnect.
    Expected: full session works in the browser with no plugin.
 
-**M-NET-1 — mDNS discovery**
+**M-NET-1 — mDNS discovery** *(automated — optional manual spot-check)*
+Covered by `vnc.NetworkBinding` (record present when enabled, withdrawn when disabled) and `x01` (propagation to another host).
 On a client with zeroconf/Bonjour browsing (e.g. `avahi-browse -rt
 _rfb._tcp`, or a mobile VNC app's discovery view), verify the device
 announces itself ("FydeOS VNC on <hostname>") with the right port when
@@ -328,13 +340,15 @@ updated address; a viewer can connect on the new address.
 
 ### 4.6 Security and performance
 
-**M-SEC-1 — Failed-authentication behavior**
+**M-SEC-1 — Failed-authentication behavior** *(automated — optional manual spot-check)*
+Covered by `vnc.AuthAbuse` (repeated wrong passwords refused, daemon stays healthy) and `vnc.AuthMatrix`. Note: no per-IP throttling is implemented.
 With a password set, attempt several consecutive wrong-password logins, then
 the correct one.
 Expected: wrong attempts are always refused; the service stays up
 (no crash/DoS); note whether rapid retries are throttled.
 
-**M-SEC-2 — No plaintext on the wire**
+**M-SEC-2 — No plaintext on the wire** *(automated — optional manual spot-check)*
+Covered by `vnc.AuthMatrix` (LAN offers only VeNCrypt; a plaintext-only client is refused) and `vnc.TLSCertificate` (TLS mandatory, 1.1 rejected).
 With default settings (insecure mode off), attempt to connect with a client
 configured for unencrypted VNC only.
 Expected: connection is refused before any screen data is sent.
@@ -357,14 +371,14 @@ On an idle LAN, with one viewer at native resolution:
 | Settings toggle & status | `vnc.Settings`, `vnc.DBusAPI` | — |
 | Enable/disable listener lifecycle | `vnc.DBusAPI`, `vnc.NetworkBinding` | — |
 | Enabled state persists across reboot | `vnc.RebootPersistence` | — |
-| TLS mandatory, cert, fingerprint | `vnc.TLSCertificate`, `vnc.AuthMatrix` | M-SET-2, M-SEC-2 |
+| TLS mandatory, cert, fingerprint | `vnc.TLSCertificate`, `vnc.AuthMatrix`, `vnc.Settings` | — |
 | Certificate regeneration | `vnc.DBusAPI`, `vnc.TLSCertificate`, `vnc.Settings` | M-SET-4 |
 | Password auth (bcrypt, live update) | `vnc.DBusAPI`, `vnc.AuthMatrix`, `vnc.SettingsPassword` | — |
 | Insecure-client mode (VncAuth/plain) | `vnc.AuthMatrix` | M-CLI-1 |
 | Loopback/web auth fast path | `vnc.AuthMatrix`, `vnc.NoVNCWeb` | M-WEB-1 |
 | LAN-only binding | `vnc.NetworkBinding` | M-NET-2 |
 | mDNS discovery | `vnc.NetworkBinding` (present + withdrawn); `x01` (external propagation) | — |
-| Pre-login (KMS) capture | `vnc.CaptureKMS`, `vnc.SessionTransition` | M-INP-1 |
+| Pre-login (KMS) capture | `vnc.CaptureKMS`, `vnc.SessionTransition`, `vnc.LoginScreenInput` | — |
 | In-session (compositor) capture | `vnc.CaptureChrome` | M-PRF-1 |
 | Damage/update stream, fps | `vnc.CaptureChrome`, `vnc.Performance`; `x03` | M-PRF-1 |
 | Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` | M-DSP-1 |
@@ -394,6 +408,8 @@ Notes:
   subjective latency/quality feel (M-PRF-1), and the OOBE setup screen
   (M-OOBE-1…4). The OOBE screen only appears when a VNC client is connected as
   OOBE finishes, so it is exercised through M-OOBE, not the automated suite.
+- Every other M-* case is automated; it stays in section 4 only as an optional
+  hands-on spot-check and is annotated with the `vnc.*` tests that cover it.
 
 ---
 

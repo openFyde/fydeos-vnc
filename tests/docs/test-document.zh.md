@@ -176,17 +176,20 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
    查看器可以连接。
 3. 关闭开关。预期：已连接的查看器被断开；新连接被拒绝；重启后状态保持。
 
-**M-SET-2 —— 指纹核对**
+**M-SET-2 —— 指纹核对** *（已自动化 —— 可选的人工抽查）*
+已由 `vnc.Settings` 与 `vnc.TLSCertificate` 覆盖（设置中显示的指纹等于 D-Bus 值与线路上的证书）。人工仅用于确认某个第三方查看器显示相同字符串。
 1. 启用 VNC 后，读取设置中显示的 SHA-256 指纹。
 2. 用能显示服务器证书的查看器连接。
    预期：两处指纹完全一致。
 
-**M-SET-3 —— 设置与清除密码**
+**M-SET-3 —— 设置与清除密码** *（已自动化 —— 可选的人工抽查）*
+已由 `vnc.SettingsPassword`（经对话框设置 → 守护要求密码）、`vnc.AuthMatrix`（错误拒绝/正确接受）与 `vnc.DBusAPI`（清除）覆盖。
 1. 在设置中设置密码。预期：查看器此后必须输入密码；错误密码被拒；正确
    密码可连接。
 2. 清除密码。预期：查看器无需密码即可连接（TLS 依然生效）。
 
-**M-SET-4 —— 重新生成证书**
+**M-SET-4 —— 重新生成证书** *（核心已自动化；人工仅用于查看器侧警告）*
+重新生成本身已由 `vnc.Settings`、`vnc.TLSCertificate` 与 `vnc.DBusAPI` 覆盖。人工仅用于第三方查看器对证书变更的警告以及设置中的活动会话警告。
 1. 记下当前指纹；点击重新生成。
    预期：出现新指纹；信任过旧证书的查看器会警告证书变化；若有活动会话，
    设置界面会给出提醒。
@@ -217,14 +220,16 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 
 ### 4.3 查看与输入
 
-**M-INP-1 —— 登录前控制**
+**M-INP-1 —— 登录前控制** *（已自动化 —— 可选的人工抽查）*
+已由 `vnc.LoginScreenInput`（经 VNC 驱动真实开机登录屏）与 `vnc.LockScreen`（在锁屏经 VNC 输入密码）覆盖；`vnc.CaptureKMS` 证明登录前画面实时渲染。
 前置条件：设备处于登录/锁定屏幕，VNC 已启用。
 1. 连接并确认登录屏正常渲染、实时更新。
 2. 点击密码框，输入一个错误密码并回车。
    预期：点击与击键位置准确（出现圆点、显示错误提示）；指针位置与本地
    屏幕一致。
 
-**M-INP-2 —— 登录后指针能力对齐**
+**M-INP-2 —— 登录后指针能力对齐** *（大部分已自动化；人工仅用于拖拽）*
+右键/中键与滚轮已由 `vnc.InputParity` 覆盖；指针/按键由 `vnc.InputInjection` 覆盖。人工仅用于窗口拖拽与拖拽选择。
 前置条件：已登录，查看器已连接。
 1. 在桌面上右键。预期：弹出上下文菜单。
 2. 在浏览器中对链接按中键。预期：新标签页打开。
@@ -247,29 +252,34 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 
 ### 4.4 显示器与会话
 
-**M-DSP-1 —— 显示器选择体验**
+**M-DSP-1 —— 显示器选择体验** *（核心已自动化；人工仅用于画面/体验核对）*
+切换与几何已由 `vnc.MultiDisplay` 覆盖。人工仅用于判断画面正确性与逐显示器的输入体验。
 前置条件：接入两台显示器，已登录。
 1. 通过显示器选择接口（或 `vnc.MultiDisplay` 的自动切换）依次查看每台
    显示器。
    预期：每台显示器画面正确；输入落在正在查看的显示器上；几何尺寸变化
    由查看器正常处理、无花屏。
 
-**M-DSP-2 —— 显示器热插拔**
+**M-DSP-2 —— 显示器热插拔** *（核心已自动化；人工仅用于真实物理拔插）*
+已由 `vnc.DisplayHotplug` 覆盖（经 sysfs 强制接口 off/on）。仅在需要确认真实拔线行为一致时人工执行。
 1. 正在查看外接显示器时将其拔掉。
    预期：会话回落到剩余/主显示器，而不是卡死或断开。
 2. 重新接上显示器。预期：它重新出现在显示器列表中并可再次选择。
 
-**M-SES-1 —— 查看期间登录/登出**
+**M-SES-1 —— 查看期间登录/登出** *（核心已自动化；人工仅用于主观画质）*
+切换与守护连续性已由 `vnc.SessionTransition` 覆盖。人工仅用于主观的画质变化。
 1. 在登录屏连接，远程观察登录过程。
    预期：能看到切换到桌面的过程；短暂的画质变化（登录屏模式帧率较低）
    可接受；不出现永久卡死或断开；切换后输入正常。
 2. 保持连接时登出。预期：画面回到登录屏并保持实时；登录屏上输入正常。
 
-**M-SES-2 —— 锁屏**
+**M-SES-2 —— 锁屏** *（已自动化 —— 可选的人工抽查）*
+已由 `vnc.LockScreen` 覆盖（锁屏、提供实时锁屏画面、经 VNC 输入密码解锁）。
 查看器连接期间锁定会话。
 预期：远程可看到锁屏；可通过 VNC 输入密码解锁。
 
-**M-SES-3 —— 休眠 / 唤醒**
+**M-SES-3 —— 休眠 / 唤醒** *（已自动化 —— 可选的人工抽查）*
+已由 `vnc.SuspendResume` 覆盖（以 RTC 唤醒休眠，确认唤醒后守护仍在服务）。
 1. 查看器连接期间休眠 DUT（合盖或电源菜单），然后唤醒。
    预期：唤醒后守护进程重新接管 —— 重新连接查看器可得到实时画面；设备
    不会因 VNC 而无法休眠。
@@ -286,13 +296,15 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 预期：支持 VeNCrypt 的客户端功能完整。不支持 VeNCrypt/TLS 的客户端必须
 被*拒绝*，除非启用了"允许不安全连接" —— 这种拒绝是正确行为，不是缺陷。
 
-**M-WEB-1 —— 完整 noVNC 会话**
+**M-WEB-1 —— 完整 noVNC 会话** *（核心已自动化；人工仅用于实机操作）*
+已由 `vnc.NoVNCSession` 与 `vnc.NoVNCWeb` 覆盖。人工仅用于 noVNC 剪贴板面板与一次实机操作。
 1. 浏览器访问 `https://<DUT_IP>:6080/vnc.html`，接受自签名证书警告。
 2. 连接，如设有密码则输入，操作桌面（打字、点击、滚动），使用 noVNC
    剪贴板面板，然后断开。
    预期：无需任何插件即可在浏览器中完成完整会话。
 
-**M-NET-1 —— mDNS 发现**
+**M-NET-1 —— mDNS 发现** *（已自动化 —— 可选的人工抽查）*
+已由 `vnc.NetworkBinding`（启用时有记录、禁用时撤回）与 `x01`（向另一主机的传播）覆盖。
 在支持 zeroconf/Bonjour 浏览的客户端上（如 `avahi-browse -rt _rfb._tcp`
 或移动 VNC 应用的发现界面）确认：启用时设备以正确端口公告自身
 （"FydeOS VNC on <主机名>"），禁用后公告消失。
@@ -304,12 +316,14 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 
 ### 4.6 安全与性能
 
-**M-SEC-1 —— 认证失败行为**
+**M-SEC-1 —— 认证失败行为** *（已自动化 —— 可选的人工抽查）*
+已由 `vnc.AuthAbuse`（反复错误密码被拒、守护保持健康）与 `vnc.AuthMatrix` 覆盖。注意：未实现按 IP 的限流。
 设置密码后，连续多次用错误密码尝试登录，随后再用正确密码登录。
 预期：错误尝试始终被拒；服务保持存活（不崩溃、不拒绝服务）；记录快速
 重试是否被限流。
 
-**M-SEC-2 —— 线路上无明文**
+**M-SEC-2 —— 线路上无明文** *（已自动化 —— 可选的人工抽查）*
+已由 `vnc.AuthMatrix`（局域网仅提供 VeNCrypt；纯明文客户端被拒）与 `vnc.TLSCertificate`（强制 TLS、拒绝 1.1）覆盖。
 默认设置下（不安全模式关闭），用只支持非加密 VNC 的客户端尝试连接。
 预期：在发送任何屏幕数据之前连接即被拒绝。
 
@@ -331,14 +345,14 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 | 设置开关与状态 | `vnc.Settings`、`vnc.DBusAPI` | — |
 | 开关对监听器的生命周期控制 | `vnc.DBusAPI`、`vnc.NetworkBinding` | — |
 | 启用状态在重启后保持 | `vnc.RebootPersistence` | — |
-| 强制 TLS、证书、指纹 | `vnc.TLSCertificate`、`vnc.AuthMatrix` | M-SET-2、M-SEC-2 |
+| 强制 TLS、证书、指纹 | `vnc.TLSCertificate`、`vnc.AuthMatrix`、`vnc.Settings` | — |
 | 证书重新生成 | `vnc.DBusAPI`、`vnc.TLSCertificate`、`vnc.Settings` | M-SET-4 |
 | 密码认证（bcrypt、实时生效） | `vnc.DBusAPI`、`vnc.AuthMatrix`、`vnc.SettingsPassword` | — |
 | 不安全客户端模式（VncAuth/明文） | `vnc.AuthMatrix` | M-CLI-1 |
 | 回环/网页认证快速通道 | `vnc.AuthMatrix`、`vnc.NoVNCWeb` | M-WEB-1 |
 | 仅绑定局域网 | `vnc.NetworkBinding` | M-NET-2 |
 | mDNS 发现 | `vnc.NetworkBinding`（出现+撤销）；`x01`（外部传播） | — |
-| 登录前（KMS）捕获 | `vnc.CaptureKMS`、`vnc.SessionTransition` | M-INP-1 |
+| 登录前（KMS）捕获 | `vnc.CaptureKMS`、`vnc.SessionTransition`、`vnc.LoginScreenInput` | — |
 | 登录后（合成器）捕获 | `vnc.CaptureChrome` | M-PRF-1 |
 | 增量更新流、帧率 | `vnc.CaptureChrome`、`vnc.Performance`；`x03` | M-PRF-1 |
 | 帧缓冲几何/对齐/尺寸变化 | `vnc.CaptureKMS`、`vnc.MultiDisplay` | M-DSP-1 |
@@ -366,6 +380,8 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
   第三方查看器兼容性（M-CLI-1）、主观延迟/画质体验（M-PRF-1）、
   以及 OOBE 设置屏（M-OOBE-1…4）。OOBE 设置屏仅在 OOBE 结束时有 VNC 客户端
   连接的情况下才出现，因此由 M-OOBE 覆盖，而非自动化套件。
+- 其余 M-* 用例均已自动化，仅作为可选的人工抽查保留在第 4 节，并各自标注了
+  覆盖它的 `vnc.*` 测试。
 
 ---
 
