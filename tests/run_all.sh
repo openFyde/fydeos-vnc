@@ -22,7 +22,7 @@ if [[ $# -gt 0 ]]; then
   tests=()
   for t in "$@"; do tests+=("$(ls "${t}"*.sh 2>/dev/null | head -1)"); done
 else
-  tests=(x01_*.sh x02_*.sh x03_*.sh)
+  tests=(x01_*.sh x02_*.sh x03_*.sh x04_*.sh)
 fi
 
 overall=0
