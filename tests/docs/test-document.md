@@ -124,7 +124,7 @@ Chrome-based test) and the two host-driven tests reboot / suspend the device.
 | `vnc.SessionTransition` | KMS (pre-login) → FrameSink (login) → KMS (logout) with the daemon never dropping and frames served throughout |
 | `vnc.MultiDisplay` | Display inventory; switching the captured display changes the framebuffer to that display's geometry and back; unknown-id error path (switching checks skip with one display) |
 | `vnc.Performance` | Daemon CPU while idle and while a viewer streams, reported to the perf pipeline with generous regression ceilings (the < 1% / 15% design targets are informational: the Raw-only test client is not comparable to a Tight viewer) |
-| `vnc.InputParity` | Right-click opens a context menu, middle-click opens a new tab, and the wheel scrolls — all injected over RFB |
+| `vnc.InputParity` | Right-click opens a context menu, middle-click opens a new tab, the wheel scrolls, a drag selects text, and a caption drag moves the window — all injected over RFB |
 | `vnc.Clipboard` | A viewer's RFB cut-text is pasted into the focused field; a device-side copy is pushed to viewers — legacy Latin-1 ServerCutText and Extended Clipboard (notify→request→provide, UTF-8 intact, sync on connect) |
 | `vnc.AuthAbuse` | Repeated wrong passwords are refused and the daemon stays healthy (no per-IP backoff is implemented) |
 | `vnc.SettingsPassword` | Setting a password through the os-settings dialog makes the daemon require it |
@@ -214,14 +214,6 @@ disabled by default.
 
 ### 4.2 Viewing and input
 
-**M-INP-2 — Pointer drag and drag-select**
-Precondition: logged in, viewer connected. (Right/middle click and wheel are
-automated by `vnc.InputParity`; only drag remains manual.)
-1. Drag a window by its title bar. Expected: it follows the pointer without
-   sticking or dropping.
-2. Drag-select a range of text in an editor. Expected: the selection tracks
-   the drag from press to release.
-
 **M-INP-3 — Keyboard layouts and IME**
 Precondition: logged in, a non-US layout or CJK IME added on the DUT.
 1. Type letters, symbols, and shifted characters into a text field via VNC.
@@ -309,7 +301,7 @@ On an idle LAN, with one viewer at native resolution:
 | Damage/update stream, fps | `vnc.CaptureChrome`, `vnc.Performance`; `x03` | M-PRF-1 |
 | Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` | M-DSP-1 |
 | Pre-login / lock-screen input | `vnc.LockScreen`, `vnc.LoginScreenInput` | — |
-| In-session input (buttons, wheel, keys) | `vnc.InputInjection`, `vnc.InputParity` | M-INP-2 (drag), M-INP-3 |
+| In-session input (buttons, wheel, drag, keys) | `vnc.InputInjection`, `vnc.InputParity` | M-INP-3 |
 | IME / keyboard layout | — | M-INP-3 |
 | Clipboard (both directions) | `vnc.Clipboard` (viewer→device paste; device→viewer legacy + Extended Clipboard incl. connect-time sync) | M-CLP-1 (real-client experience, confidential filter) |
 | Multi-display enumeration/switch | `vnc.MultiDisplay` | M-DSP-1 |
@@ -328,8 +320,8 @@ On an idle LAN, with one viewer at native resolution:
 
 Notes:
 - What genuinely needs a human (all that is left in section 4): the OOBE setup
-  screen (M-OOBE-1…4), IME / non-US layout (M-INP-3), pointer drag & drag-select
-  (M-INP-2), real-client clipboard experience (M-CLP-1),
+  screen (M-OOBE-1…4), IME / non-US layout (M-INP-3), real-client
+  clipboard experience (M-CLP-1),
   the multi-display visual / input-feel check (M-DSP-1), network change /
   runtime re-bind (M-NET-2, a product gap), third-party client compatibility
   (M-CLI-1), and the subjective latency / quality feel (M-PRF-1).

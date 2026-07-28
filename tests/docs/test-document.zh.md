@@ -115,7 +115,7 @@ tast run <dut-ip>[:ssh-port] 'vnc.*'
 | `vnc.SessionTransition` | KMS（登录前）→ FrameSink（登录）→ KMS（登出），守护进程全程不掉线且持续提供画面 |
 | `vnc.MultiDisplay` | 显示器清单；切换捕获显示器后帧缓冲变为该显示器几何尺寸并可切回；未知 id 错误路径（仅一台显示器时跳过切换检查） |
 | `vnc.Performance` | 守护进程空闲与查看器串流时的 CPU，按宽松的回归上限上报 perf 管线（< 1% / 15% 设计指标仅供参考：Raw-only 测试客户端与 Tight 查看器不可直接比较） |
-| `vnc.InputParity` | 经 RFB 注入的右键弹出上下文菜单、中键打开新标签页、滚轮滚动 |
+| `vnc.InputParity` | 经 RFB 注入的右键弹出上下文菜单、中键打开新标签页、滚轮滚动、拖拽选中文本、拖动标题区移动窗口 |
 | `vnc.Clipboard` | 查看器的 RFB cut-text 被粘贴进聚焦的输入框；设备侧复制推送到查看器 —— legacy Latin-1 ServerCutText 与 Extended Clipboard（notify→request→provide、UTF-8 完整、连接时同步） |
 | `vnc.AuthAbuse` | 反复错误密码均被拒且守护进程保持健康（未实现按 IP 退避） |
 | `vnc.SettingsPassword` | 经 os-settings 密码对话框设置密码后守护进程要求密码 |
@@ -199,12 +199,6 @@ VNC 设置屏仅在 OOBE 结束时有 VNC 客户端连接的情况下才出现�
 
 ### 4.2 查看与输入
 
-**M-INP-2 —— 指针拖拽与拖选**
-前置条件：已登录，查看器已连接。（右键/中键与滚轮已由 `vnc.InputParity`
-覆盖；仅拖拽仍需人工。）
-1. 拖动窗口标题栏移动窗口。预期：窗口跟随指针，不粘滞、不丢失。
-2. 在编辑器中拖选一段文本。预期：从按下到松开选区随拖拽变化。
-
 **M-INP-3 —— 键盘布局与输入法**
 前置条件：已登录，DUT 上添加了非美式布局或中日韩输入法。
 1. 通过 VNC 在文本框中输入字母、符号和需要 Shift 的字符。
@@ -282,7 +276,7 @@ Extended Clipboard 客户端，含连接时同步）；本用例核对真实客�
 | 增量更新流、帧率 | `vnc.CaptureChrome`、`vnc.Performance`；`x03` | M-PRF-1 |
 | 帧缓冲几何/对齐/尺寸变化 | `vnc.CaptureKMS`、`vnc.MultiDisplay` | M-DSP-1 |
 | 登录前 / 锁屏输入 | `vnc.LockScreen`、`vnc.LoginScreenInput` | — |
-| 登录后输入（按键、滚轮、键盘） | `vnc.InputInjection`、`vnc.InputParity` | M-INP-2（拖拽）、M-INP-3 |
+| 登录后输入（按键、滚轮、拖拽、键盘） | `vnc.InputInjection`、`vnc.InputParity` | M-INP-3 |
 | 输入法 / 键盘布局 | — | M-INP-3 |
 | 剪贴板（双向） | `vnc.Clipboard`（查看器→设备粘贴；设备→查看器 legacy + Extended Clipboard，含连接时同步） | M-CLP-1（真实客户端体验、机密过滤） |
 | 多显示器枚举/切换 | `vnc.MultiDisplay` | M-DSP-1 |
@@ -301,7 +295,7 @@ Extended Clipboard 客户端，含连接时同步）；本用例核对真实客�
 
 说明：
 - 真正需要人工的项（第 4 节仅剩这些）：OOBE 设置屏（M-OOBE-1…4）、输入法/
-  非美式布局（M-INP-3）、指针拖拽与拖选（M-INP-2）、真实客户端剪贴板体验
+  非美式布局（M-INP-3）、真实客户端剪贴板体验
   （M-CLP-1）、多显示器视觉/输入体验核对（M-DSP-1）、网络切换/运行时重新绑定
   （M-NET-2，产品缺口）、第三方客户端兼容性（M-CLI-1）、主观延迟/画质体验（M-PRF-1）。
 - 其余原手动用例 —— 开关、指纹、密码、证书重新生成、登录前与锁屏输入、会话切换、休眠/
