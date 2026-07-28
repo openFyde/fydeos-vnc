@@ -115,7 +115,7 @@ tast run <dut-ip>[:ssh-port] 'vnc.*'
 | `vnc.Clipboard` | 查看器的 RFB cut-text 被粘贴进聚焦的输入框（设备→查看器方向未接线） |
 | `vnc.AuthAbuse` | 反复错误密码均被拒且守护进程保持健康（未实现按 IP 退避） |
 | `vnc.SettingsPassword` | 经 os-settings 密码对话框设置密码后守护进程要求密码 |
-| `vnc.LockScreen` | 会话锁定期间守护进程仍在提供锁屏画面 |
+| `vnc.LockScreen` | 锁定期间守护进程提供锁屏画面，且经 VNC 注入的击键可驱动锁屏：错误密码被拒、正确密码解锁 |
 | `vnc.NoVNCSession` | 内置 noVNC 网页客户端在浏览器标签页中连接并渲染桌面 |
 | `vnc.DisplayHotplug` | 强制外接显示器连接器断开/接入后守护进程清单更新且采集优雅回落（需外接显示器） |
 | `vnc.RebootPersistence` | *(主机驱动)* 启用状态（Chrome pref）跨重启保持 |
@@ -337,14 +337,14 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 | 登录后（合成器）捕获 | `vnc.CaptureChrome` | M-PRF-1 |
 | 增量更新流、帧率 | `vnc.CaptureChrome`、`vnc.Performance`；`x03` | M-PRF-1 |
 | 帧缓冲几何/对齐/尺寸变化 | `vnc.CaptureKMS`、`vnc.MultiDisplay` | M-DSP-1 |
-| 登录前输入（虚拟设备） | — | M-INP-1 |
+| 登录前 / 锁屏输入 | `vnc.LockScreen` | M-INP-1（开机登录屏，无会话） |
 | 登录后输入（按键、滚轮、键盘） | `vnc.InputInjection`、`vnc.InputParity` | M-INP-2（拖拽）、M-INP-3 |
 | 输入法 / 键盘布局 | — | M-INP-3 |
 | 剪贴板（查看器→设备 粘贴） | `vnc.Clipboard` | M-CLP-1（设备→查看器 推送，未实现） |
 | 多显示器枚举/切换 | `vnc.MultiDisplay` | M-DSP-1 |
 | 显示器热插拔 | `vnc.DisplayHotplug` | — |
 | 登出/登录/崩溃健壮性 | `vnc.SessionTransition` | M-SES-1 |
-| 锁屏 | `vnc.LockScreen` | M-SES-2（经 VNC 击键解锁） |
+| 锁屏 | `vnc.LockScreen` | — |
 | 休眠/唤醒 | `vnc.SuspendResume` | — |
 | 重启持久化 | `vnc.RebootPersistence` | — |
 | noVNC 网页访问 | `vnc.NoVNCWeb`、`vnc.NoVNCSession`；`x01`、`x03` | — |
@@ -356,10 +356,10 @@ VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 | 认证滥用防护 | `vnc.AuthAbuse` | — |
 
 说明：
-- 仍为手动的项：登录前输入验证（M-INP-1）、输入法/布局（M-INP-3）、指针拖拽
-  （M-INP-2 的一部分）、剪贴板设备→查看器方向（M-CLP-1，守护进程未实现）、
-  专门经 VNC 击键解锁（M-SES-2）、网络切换（M-NET-2）、第三方查看器兼容性
-  （M-CLI-1）、主观延迟/画质体验（M-PRF-1）、
+- 仍为手动的项：开机登录屏（无会话）的登录前输入（M-INP-1；锁屏输入路径已由
+  vnc.LockScreen 覆盖）、输入法/布局（M-INP-3）、指针拖拽（M-INP-2 的一部分）、
+  剪贴板设备→查看器方向（M-CLP-1，守护进程未实现）、网络切换（M-NET-2）、
+  第三方查看器兼容性（M-CLI-1）、主观延迟/画质体验（M-PRF-1）、
   以及 OOBE 设置屏（M-OOBE-1…4）。OOBE 设置屏仅在 OOBE 结束时有 VNC 客户端
   连接的情况下才出现，因此由 M-OOBE 覆盖，而非自动化套件。
 
