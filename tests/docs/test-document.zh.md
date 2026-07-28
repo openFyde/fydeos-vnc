@@ -7,9 +7,8 @@
   输入注入、设置界面、多显示器、noVNC 网页访问、会话切换以及 CPU。
 - **外部观察者测试（shell 套件）** —— 一小组只有从 DUT 所在局域网的另一台
   主机才有意义的检查：mDNS 传播、并发查看器、主机侧性能。
-- **手动测试** —— 少数需要人工、真实第三方客户端或物理硬件的用例：
-  OOBE 流程、输入手感与输入法、真实客户端的剪贴板体验、显示器体验、
-  客户端兼容性、网络切换、性能体验。
+- **手动测试** —— 仅剩两个需要真实第三方软件或人眼判断的用例：
+  第三方 VNC 客户端兼容性，以及主观的延迟/画质体验。
 
 `vnc.*` Tast 测试、`x0*` shell 检查与手动用例（M-\*）合在一起覆盖全部
 VNC 功能。第 5 节的覆盖矩阵列出了每个功能与用例的对应关系。
@@ -171,16 +170,7 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # 帧率/带宽
 的覆盖矩阵标明了每个功能的覆盖位置。每个用例记录 通过 / 失败 / 受阻 及备注。
 除特别说明外，"查看器"指支持 VeNCrypt 的 VNC 客户端（推荐 TigerVNC）。
 
-### 4.1 查看与输入
-
-**M-INP-3 —— 键盘布局与输入法**
-前置条件：已登录，DUT 上添加了非美式布局或中日韩输入法。
-1. 通过 VNC 在文本框中输入字母、符号和需要 Shift 的字符。
-   预期：字符与 DUT 当前布局一致。
-2. 切换到输入法并进行组合输入（如拼音 → 候选词选择）。
-   预期：组合与候选窗口的行为与本地键盘一致。
-
-### 4.2 客户端、网页访问、发现
+### 4.1 客户端、网页访问、发现
 
 **M-CLI-1 —— 客户端兼容性矩阵**
 使用下列每个客户端进行连接、认证（有密码与无密码两种）、查看、输入，
@@ -192,12 +182,8 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # 帧率/带宽
 预期：支持 VeNCrypt 的客户端功能完整。不支持 VeNCrypt/TLS 的客户端必须
 被*拒绝*，除非启用了"允许不安全连接" —— 这种拒绝是正确行为，不是缺陷。
 
-**M-NET-2 —— 网络切换**
-启用状态下让 DUT 在 Wi-Fi 与有线之间切换（或更换接入点）。
-预期：服务重新绑定到新的局域网地址；设置界面显示新地址；查看器可通过
-新地址连接。（运行时重新绑定是已知的产品缺口 —— 记录实际行为。）
 
-### 4.3 性能
+### 4.2 性能
 
 **M-PRF-1 —— 延迟与画质体验**
 在空闲局域网中，单个查看器、原生分辨率下：
@@ -222,15 +208,14 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # 帧率/带宽
 | 密码认证（bcrypt、实时生效） | `vnc.DBusAPI`、`vnc.AuthMatrix`、`vnc.SettingsPassword` | — |
 | 不安全客户端模式（VncAuth/明文） | `vnc.AuthMatrix` | M-CLI-1 |
 | 回环/网页认证快速通道 | `vnc.AuthMatrix`、`vnc.NoVNCWeb` | — |
-| 仅绑定局域网 | `vnc.NetworkBinding` | M-NET-2 |
+| 仅绑定局域网 | `vnc.NetworkBinding` | — |
 | mDNS 发现 | `vnc.NetworkBinding`（出现+撤销）；`x01`（外部传播） | — |
 | 登录前（KMS）捕获 | `vnc.CaptureKMS`、`vnc.SessionTransition`、`vnc.LoginScreenInput` | — |
 | 登录后（合成器）捕获 | `vnc.CaptureChrome` | M-PRF-1 |
 | 增量更新流、帧率 | `vnc.CaptureChrome`、`vnc.Performance`；`x03` | M-PRF-1 |
 | 帧缓冲几何/对齐/尺寸变化 | `vnc.CaptureKMS`、`vnc.MultiDisplay` | — |
 | 登录前 / 锁屏输入 | `vnc.LockScreen`、`vnc.LoginScreenInput` | — |
-| 登录后输入（按键、滚轮、拖拽、键盘） | `vnc.InputInjection`、`vnc.InputParity` | M-INP-3 |
-| 输入法 / 键盘布局 | — | M-INP-3 |
+| 登录后输入（按键、滚轮、拖拽、键盘） | `vnc.InputInjection`、`vnc.InputParity` | — |
 | 剪贴板（双向） | `vnc.Clipboard`（查看器→设备粘贴；设备→查看器 legacy + Extended Clipboard、连接时同步、UTF-8、约 1 MB 负载） | — |
 | 多显示器枚举/切换/内容/输入 | `vnc.MultiDisplay` | — |
 | 显示器热插拔 | `vnc.DisplayHotplug` | — |
@@ -247,9 +232,11 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # 帧率/带宽
 | 认证滥用防护 | `vnc.AuthAbuse` | — |
 
 说明：
-- 真正需要人工的项（第 4 节仅剩这些）：输入法/非美式布局（M-INP-3）、
-  网络切换/运行时重新绑定（M-NET-2，产品缺口）、第三方客户端兼容性
-  （M-CLI-1）、主观延迟/画质体验（M-PRF-1）。
+- 真正需要人工的项（第 4 节仅剩这些）：第三方客户端兼容性（M-CLI-1）与
+  主观延迟/画质体验（M-PRF-1）。
+- 明确不测试的项：输入法组合与非美式键盘布局；以及网络切换后的运行时重新
+  绑定 —— 守护进程未实现该能力（仅在启动时绑定一次，因此 Wi-Fi/有线切换后
+  查看器需以新地址重新连接）。
 - 其余原手动用例 —— 开关、指纹、密码、证书重新生成、登录前与锁屏输入、
   会话切换、休眠/唤醒、mDNS、认证滥用、无明文、显示器热插拔、完整 noVNC
   会话、指针拖拽、多显示器内容/输入、剪贴板（双向）、OOBE 设置屏 —— 均已

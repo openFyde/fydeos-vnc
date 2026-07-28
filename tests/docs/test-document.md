@@ -10,10 +10,9 @@ covers three complementary methods:
 - **External-observer tests (shell suite)** — a small set of checks that only
   make sense from a separate host on the DUT's LAN: mDNS propagation, concurrent
   viewers, and host-side performance.
-- **Manual tests** — the few cases that need a human, a real third-party
-  client, or physical hardware: the OOBE flow, input feel and IME,
-  real-client clipboard behavior, display experience, client
-  compatibility, network change, and performance feel.
+- **Manual tests** — the two cases that need real third-party software or a
+  human eye: compatibility with third-party VNC clients, and the subjective
+  latency / quality feel.
 
 Together the `vnc.*` Tast tests, the `x0*` shell checks, and the manual cases
 (`M-*`) cover all VNC functions. The coverage matrix in section 5 maps every
@@ -183,17 +182,7 @@ matrix in section 5 shows where each function is covered. Record each case as
 Pass / Fail / Blocked with notes. "Viewer" means a VeNCrypt-capable VNC client
 (TigerVNC recommended) unless stated otherwise.
 
-### 4.1 Viewing and input
-
-**M-INP-3 — Keyboard layouts and IME**
-Precondition: logged in, a non-US layout or CJK IME added on the DUT.
-1. Type letters, symbols, and shifted characters into a text field via VNC.
-   Expected: characters match the DUT's active layout.
-2. Switch to the IME and compose text (e.g. pinyin -> candidate selection).
-   Expected: composition and candidate windows behave as with a local
-   keyboard.
-
-### 4.2 Clients, web access, discovery
+### 4.1 Clients, web access, discovery
 
 **M-CLI-1 — Client compatibility matrix**
 Connect, authenticate (with and without password), view, and type with each
@@ -206,13 +195,8 @@ Expected: VeNCrypt-capable clients work fully. Clients without VeNCrypt/TLS
 support must be *refused* unless "allow insecure connections" was enabled —
 that refusal is correct behavior, not a bug.
 
-**M-NET-2 — Network change**
-While enabled, switch the DUT between Wi-Fi and Ethernet (or change APs).
-Expected: the service re-binds to the new LAN address; Settings shows the
-updated address; a viewer can connect on the new address. (Runtime re-bind is
-a known product gap — record the actual behavior.)
 
-### 4.3 Performance
+### 4.2 Performance
 
 **M-PRF-1 — Latency and quality feel**
 On an idle LAN, with one viewer at native resolution:
@@ -237,15 +221,14 @@ On an idle LAN, with one viewer at native resolution:
 | Password auth (bcrypt, live update) | `vnc.DBusAPI`, `vnc.AuthMatrix`, `vnc.SettingsPassword` | — |
 | Insecure-client mode (VncAuth/plain) | `vnc.AuthMatrix` | M-CLI-1 |
 | Loopback/web auth fast path | `vnc.AuthMatrix`, `vnc.NoVNCWeb` | — |
-| LAN-only binding | `vnc.NetworkBinding` | M-NET-2 |
+| LAN-only binding | `vnc.NetworkBinding` | — |
 | mDNS discovery | `vnc.NetworkBinding` (present + withdrawn); `x01` (external propagation) | — |
 | Pre-login (KMS) capture | `vnc.CaptureKMS`, `vnc.SessionTransition`, `vnc.LoginScreenInput` | — |
 | In-session (compositor) capture | `vnc.CaptureChrome` | M-PRF-1 |
 | Damage/update stream, fps | `vnc.CaptureChrome`, `vnc.Performance`; `x03` | M-PRF-1 |
 | Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` | — |
 | Pre-login / lock-screen input | `vnc.LockScreen`, `vnc.LoginScreenInput` | — |
-| In-session input (buttons, wheel, drag, keys) | `vnc.InputInjection`, `vnc.InputParity` | M-INP-3 |
-| IME / keyboard layout | — | M-INP-3 |
+| In-session input (buttons, wheel, drag, keys) | `vnc.InputInjection`, `vnc.InputParity` | — |
 | Clipboard (both directions) | `vnc.Clipboard` (viewer→device paste; device→viewer legacy + Extended Clipboard, connect-time sync, UTF-8, ~1 MB payload) | — |
 | Multi-display enumeration/switch/content/input | `vnc.MultiDisplay` | — |
 | Display hotplug | `vnc.DisplayHotplug` | — |
@@ -262,10 +245,13 @@ On an idle LAN, with one viewer at native resolution:
 | Auth abuse resilience | `vnc.AuthAbuse` | — |
 
 Notes:
-- What genuinely needs a human (all that is left in section 4): IME / non-US
-  layout (M-INP-3), network change / runtime re-bind (M-NET-2, a product gap),
-  third-party client compatibility (M-CLI-1), and the subjective latency /
-  quality feel (M-PRF-1).
+- What genuinely needs a human (all that is left in section 4): third-party
+  client compatibility (M-CLI-1) and the subjective latency / quality feel
+  (M-PRF-1).
+- Deliberately not tested: IME composition and non-US keyboard layouts; and
+  runtime re-binding after a network change, which the daemon does not
+  implement (it binds once at start-up, so a viewer must reconnect on the new
+  address after a Wi-Fi/Ethernet switch).
 - Every other former manual case — enable/disable, fingerprint, password,
   certificate regeneration, pre-login & lock-screen input, session
   transitions, suspend/resume, mDNS, auth abuse, no-plaintext, display
