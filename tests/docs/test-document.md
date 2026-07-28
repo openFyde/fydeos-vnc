@@ -122,7 +122,7 @@ Chrome-based test) and the two host-driven tests reboot / suspend the device.
 | `vnc.Settings` | The os-settings VNC card drives the daemon: enable toggle round-trip, fingerprint display matches D-Bus, certificate regeneration |
 | `vnc.NoVNCWeb` | noVNC page served over HTTPS with the daemon certificate; websockify backend; the plain-HTTP-policy and WebSocket-upgrade checks are informational (logged, not enforced) |
 | `vnc.SessionTransition` | KMS (pre-login) → FrameSink (login) → KMS (logout) with the daemon never dropping and frames served throughout |
-| `vnc.MultiDisplay` | Display inventory; switching the captured display changes the framebuffer to that display's geometry and back; unknown-id error path (switching checks skip with one display) |
+| `vnc.MultiDisplay` | Display inventory; switching the captured display changes the framebuffer to that display's geometry and back; the frame shows that display's content and an injected click lands on it; unknown-id error path (switching checks skip with one display) |
 | `vnc.Performance` | Daemon CPU while idle and while a viewer streams, reported to the perf pipeline with generous regression ceilings (the < 1% / 15% design targets are informational: the Raw-only test client is not comparable to a Tight viewer) |
 | `vnc.InputParity` | Right-click opens a context menu, middle-click opens a new tab, the wheel scrolls, a drag selects text, and a caption drag moves the window — all injected over RFB |
 | `vnc.Clipboard` | A viewer's RFB cut-text is pasted into the focused field; a device-side copy is pushed to viewers — legacy Latin-1 ServerCutText and Extended Clipboard (notify→request→provide, UTF-8 intact, sync on connect) |
@@ -240,17 +240,7 @@ checks the end-to-end experience with real clients.
    Expected: it is NOT pushed to viewers (confidential clipboard content is
    filtered).
 
-### 4.3 Displays
-
-**M-DSP-1 — Display selection experience**
-Precondition: two displays connected, logged in. (Enumeration and the switch
-itself are automated by `vnc.MultiDisplay`; this case judges the visual result
-and input feel.)
-1. Switch the captured display and view each display in turn.
-   Expected: correct image on each; input lands on the display being viewed;
-   the viewer handles the geometry change without artifacts.
-
-### 4.4 Clients, web access, discovery
+### 4.3 Clients, web access, discovery
 
 **M-CLI-1 — Client compatibility matrix**
 Connect, authenticate (with and without password), view, and type with each
@@ -269,7 +259,7 @@ Expected: the service re-binds to the new LAN address; Settings shows the
 updated address; a viewer can connect on the new address. (Runtime re-bind is
 a known product gap — record the actual behavior.)
 
-### 4.5 Performance
+### 4.4 Performance
 
 **M-PRF-1 — Latency and quality feel**
 On an idle LAN, with one viewer at native resolution:
@@ -299,12 +289,12 @@ On an idle LAN, with one viewer at native resolution:
 | Pre-login (KMS) capture | `vnc.CaptureKMS`, `vnc.SessionTransition`, `vnc.LoginScreenInput` | — |
 | In-session (compositor) capture | `vnc.CaptureChrome` | M-PRF-1 |
 | Damage/update stream, fps | `vnc.CaptureChrome`, `vnc.Performance`; `x03` | M-PRF-1 |
-| Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` | M-DSP-1 |
+| Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` | — |
 | Pre-login / lock-screen input | `vnc.LockScreen`, `vnc.LoginScreenInput` | — |
 | In-session input (buttons, wheel, drag, keys) | `vnc.InputInjection`, `vnc.InputParity` | M-INP-3 |
 | IME / keyboard layout | — | M-INP-3 |
 | Clipboard (both directions) | `vnc.Clipboard` (viewer→device paste; device→viewer legacy + Extended Clipboard incl. connect-time sync) | M-CLP-1 (real-client experience, confidential filter) |
-| Multi-display enumeration/switch | `vnc.MultiDisplay` | M-DSP-1 |
+| Multi-display enumeration/switch/content/input | `vnc.MultiDisplay` | — |
 | Display hotplug | `vnc.DisplayHotplug` | — |
 | Logout/login/crash resilience | `vnc.SessionTransition` | — |
 | Lock screen | `vnc.LockScreen` | — |
@@ -322,7 +312,7 @@ Notes:
 - What genuinely needs a human (all that is left in section 4): the OOBE setup
   screen (M-OOBE-1…4), IME / non-US layout (M-INP-3), real-client
   clipboard experience (M-CLP-1),
-  the multi-display visual / input-feel check (M-DSP-1), network change /
+  network change /
   runtime re-bind (M-NET-2, a product gap), third-party client compatibility
   (M-CLI-1), and the subjective latency / quality feel (M-PRF-1).
 - Every other former manual case — enable/disable, fingerprint, password,
