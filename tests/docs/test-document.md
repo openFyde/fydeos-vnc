@@ -121,6 +121,7 @@ state, and the session-transition test restores the login screen.
 | `vnc.AuthAbuse` | Repeated wrong passwords are refused and the daemon stays healthy (no per-IP backoff is implemented) |
 | `vnc.SettingsPassword` | Setting a password through the os-settings dialog makes the daemon require it |
 | `vnc.LockScreen` | While locked the daemon serves the lock screen, and VNC-injected keystrokes drive it: wrong password rejected, correct password unlocks |
+| `vnc.LoginScreenInput` | At the genuine boot login screen (no session), VNC drives the "Add Person → Use local account" flow to create a local account and sign in |
 | `vnc.NoVNCSession` | The built-in noVNC web client connects and renders the desktop in a browser tab |
 | `vnc.DisplayHotplug` | Forcing an external display's connector off/on updates the daemon's inventory and capture falls back gracefully (needs an external display) |
 | `vnc.RebootPersistence` | *(host-driven)* The enabled state (Chrome pref) persists across a reboot |
@@ -363,7 +364,7 @@ On an idle LAN, with one viewer at native resolution:
 | In-session (compositor) capture | `vnc.CaptureChrome` | M-PRF-1 |
 | Damage/update stream, fps | `vnc.CaptureChrome`, `vnc.Performance`; `x03` | M-PRF-1 |
 | Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` | M-DSP-1 |
-| Pre-login / lock-screen input | `vnc.LockScreen` | M-INP-1 (boot login screen, no session) |
+| Pre-login / lock-screen input | `vnc.LockScreen`, `vnc.LoginScreenInput` | — |
 | In-session input (buttons, wheel, keys) | `vnc.InputInjection`, `vnc.InputParity` | M-INP-2 (drag), M-INP-3 |
 | IME / keyboard layout | — | M-INP-3 |
 | Clipboard (viewer→device paste) | `vnc.Clipboard` | M-CLP-1 (device→viewer push, not implemented) |
@@ -382,11 +383,10 @@ On an idle LAN, with one viewer at native resolution:
 | Auth abuse resilience | `vnc.AuthAbuse` | — |
 
 Notes:
-- What stays manual: pre-login input at the boot login screen (M-INP-1; the
-  lock-screen input path is covered by vnc.LockScreen), IME/layout (M-INP-3),
-  pointer drag (part of M-INP-2), the device→viewer clipboard direction
-  (M-CLP-1, not implemented in the daemon), network change (M-NET-2), client
-  compatibility with third-party viewers (M-CLI-1), the
+- What stays manual: IME/layout (M-INP-3), pointer drag (part of M-INP-2),
+  the device→viewer clipboard direction (M-CLP-1, not implemented in the
+  daemon), network change (M-NET-2), client compatibility with third-party
+  viewers (M-CLI-1), the
   subjective latency/quality feel (M-PRF-1), and the OOBE setup screen
   (M-OOBE-1…4). The OOBE screen only appears when a VNC client is connected as
   OOBE finishes, so it is exercised through M-OOBE, not the automated suite.
