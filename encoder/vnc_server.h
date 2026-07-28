@@ -101,11 +101,20 @@ class VncServer {
   // (whole frame when the damage list is empty, e.g. the KMS source).
   void PushFrame(const capture::Frame& frame);
 
+  // Device → viewer clipboard. Caches |utf8| and announces it to every
+  // connected client: Extended Clipboard notify (the client pulls via
+  // request → provide) for capable clients, legacy Latin-1
+  // ServerCutText for the rest.
+  void PushClipboard(std::string utf8);
+
   // libvncserver event callbacks (public so the static thunks can call
   // them; not meant for external use).
   void OnKeyEvent(bool down, uint32_t keysym);
   void OnPointerEvent(int button_mask, int x, int y);
   void OnClipboard(std::string_view utf8);
+  // Latest device clipboard text (set via PushClipboard). Read by the
+  // Extended Clipboard thunks to answer client request/peek messages.
+  const std::string& latest_clipboard() const { return latest_clipboard_; }
   // libvncserver new-client / client-gone thunks call these to keep
   // client_count_ tracked and to fire idle_state_changed across the
   // 0-clients ↔ ≥1-clients boundary.
@@ -131,6 +140,8 @@ class VncServer {
   const int port_;
 
   std::vector<uint32_t> framebuffer_;  // vnc_width_ * source_height_ BGRA px
+  // Device clipboard cache for the device→viewer direction.
+  std::string latest_clipboard_;
   rfbScreenInfoPtr server_ = nullptr;
   int client_count_ = 0;
   // Set to true when a new client connects (or the capture pipeline

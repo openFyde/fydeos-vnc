@@ -175,6 +175,7 @@ if (use.test) {
   executable("run_fydeos_vnc_tests") {
     sources = [
       "capture/kms_capture_source_test.cc",
+      "encoder/extended_clipboard_test.cc",
       "encoder/vnc_utils_test.cc",
       "input/uinput_sink_test.cc",
       "net/password_test.cc",

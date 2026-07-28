@@ -238,6 +238,17 @@ void Pipeline::TryStart() {
     // D-Bus consumers know to re-query ListDisplays.
     sel_cfg.display_state_changed = base::BindRepeating(
         &Pipeline::Notify, base::Unretained(this));
+    // Device → viewer clipboard: Chrome pushes changed clipboard text
+    // through the selector's ClipboardObserver; forward to whichever
+    // VncServer instance is live (it is recreated across toggles while
+    // the selector survives, hence the indirection).
+    sel_cfg.clipboard_changed = base::BindRepeating(
+        [](Pipeline* p, const std::string& utf8) {
+          if (p->vnc_server_) {
+            p->vnc_server_->PushClipboard(utf8);
+          }
+        },
+        base::Unretained(this));
     selector_ = std::make_unique<CaptureSourceSelector>(
         std::move(sel_cfg), chrome_,
         base::BindRepeating(

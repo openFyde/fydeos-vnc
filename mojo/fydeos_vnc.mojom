@@ -58,6 +58,14 @@ interface DisplayObserver {
   OnDisplaysChanged(array<DisplayInfo> displays);
 };
 
+// Implemented in the daemon; Chrome pushes the device (Ash) clipboard
+// text whenever it changes (device → viewer direction). Text-only;
+// clipboard content marked confidential by its originator (password
+// managers) is never pushed.
+interface ClipboardObserver {
+  OnClipboardChanged(string utf8);
+};
+
 // Aggregator handed to the daemon by the bootstrap call.
 interface FydeosVncService {
   BindFrameSinkCaptureService(
@@ -101,4 +109,9 @@ interface InputInjectionService {
                 int64 display_id);
   // Reserved for clipboard / Unicode text injection (M7c+ / v2).
   InjectText(string utf8);
+  // Registers an observer for device-side clipboard changes (device →
+  // viewer direction). Chrome reads the changed clipboard text and
+  // pushes it; registration must be renewed after a Chrome restart
+  // (the old pipe goes down with the old process).
+  AddClipboardObserver(pending_remote<ClipboardObserver> observer);
 };

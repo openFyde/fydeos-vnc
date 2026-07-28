@@ -77,6 +77,7 @@ void CaptureSourceSelector::Stop() {
   probe_timeout_timer_.Stop();
   reconnect_timer_.Stop();
   display_observer_receiver_.reset();
+  clipboard_observer_receiver_.reset();
   displays_.clear();
   current_display_id_ = 0;
   if (framesink_) {
@@ -150,6 +151,12 @@ void CaptureSourceSelector::TryEnterFrameSink() {
   display_observer_receiver_.reset();
   fs->AddDisplayObserver(
       display_observer_receiver_.BindNewPipeAndPassRemote());
+  // Same lifecycle for device-clipboard pushes (device → viewer).
+  if (auto* in = chrome_->input_injection()) {
+    clipboard_observer_receiver_.reset();
+    in->AddClipboardObserver(
+        clipboard_observer_receiver_.BindNewPipeAndPassRemote());
+  }
   // Chrome starts from "no clients"; push the real state (covers clients
   // already connected across a Chrome restart).
   fs->SetVncClientsPresent(clients_present_);
@@ -166,6 +173,7 @@ void CaptureSourceSelector::GoBackToKms() {
   LOG(INFO) << "Selector: falling back to KMS_ACTIVE (FrameSink unhealthy)";
   probe_timeout_timer_.Stop();
   display_observer_receiver_.reset();
+  clipboard_observer_receiver_.reset();
   displays_.clear();
   current_display_id_ = 0;
   if (framesink_) {
@@ -280,6 +288,14 @@ void CaptureSourceSelector::OnDisplaysChanged(
   }
   if (config_.display_state_changed) {
     config_.display_state_changed.Run();
+  }
+}
+
+void CaptureSourceSelector::OnClipboardChanged(const std::string& utf8) {
+  VLOG(1) << "Selector: device clipboard changed (" << utf8.size()
+          << " bytes)";
+  if (config_.clipboard_changed) {
+    config_.clipboard_changed.Run(utf8);
   }
 }
 

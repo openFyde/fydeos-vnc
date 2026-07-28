@@ -57,7 +57,19 @@ InboundMessage Parse(const char* data, size_t len) {
 
   if (is_caps) {
     VLOG(1) << "ExtClip: client caps flags=0x" << std::hex << flags;
-    return out;  // kIgnored
+    out.kind = InboundKind::kCaps;
+    out.caps_flags = flags;
+    return out;
+  }
+  if (flags & kActRequest) {
+    if (flags & kFmtText) {
+      out.kind = InboundKind::kRequestText;
+    }
+    return out;
+  }
+  if (flags & kActPeek) {
+    out.kind = InboundKind::kPeek;
+    return out;
   }
   if (is_notify) {
     if (flags & kFmtText) {
@@ -127,17 +139,49 @@ std::string BuildRequestBody(uint32_t formats) {
   return body;
 }
 
+std::string BuildNotifyBody(uint32_t formats) {
+  std::string body;
+  body.resize(4);
+  WriteBeU32(reinterpret_cast<uint8_t*>(body.data()),
+             kActNotify | (formats & 0xFFFFu));
+  return body;
+}
+
+std::string BuildProvideTextBody(std::string_view utf8) {
+  // Uncompressed stream: u32 byte count + UTF-8 bytes + trailing NUL
+  // (counted — TigerVNC-compatible; receivers strip it).
+  std::vector<uint8_t> plain(4 + utf8.size() + 1);
+  WriteBeU32(plain.data(), static_cast<uint32_t>(utf8.size() + 1));
+  std::memcpy(plain.data() + 4, utf8.data(), utf8.size());
+  plain[4 + utf8.size()] = 0;
+
+  std::string body;
+  uLongf comp_len = compressBound(static_cast<uLong>(plain.size()));
+  body.resize(4 + comp_len);
+  uint8_t* p = reinterpret_cast<uint8_t*>(body.data());
+  WriteBeU32(p, kActProvide | kFmtText);
+  if (compress2(p + 4, &comp_len, plain.data(),
+                static_cast<uLong>(plain.size()),
+                Z_DEFAULT_COMPRESSION) != Z_OK) {
+    LOG(WARNING) << "ExtClip: zlib compress failed";
+    return std::string();
+  }
+  body.resize(4 + comp_len);
+  return body;
+}
+
 std::string BuildCapsBody(uint32_t supported_formats) {
   // Caps body: u32 flags + per-format u32 max-size for each advertised
   // format. The action bits in |flags| advertise *which actions* the
-  // server supports; the format bits advertise *which formats*. We
-  // claim caps + request + provide (we can ack caps, send a request,
-  // and parse incoming provide messages) for TEXT.
+  // server accepts from the peer; the format bits advertise *which
+  // formats*. We accept all of them for TEXT: caps, request (we answer
+  // with provide), peek (we answer with notify), notify (we answer
+  // with request) and provide (we inject the text).
   std::string body;
   body.resize(8);
   uint8_t* p = reinterpret_cast<uint8_t*>(body.data());
-  uint32_t flags = kActCaps | kActRequest | kActProvide |
-                   (supported_formats & 0xFFFFu);
+  uint32_t flags = kActCaps | kActRequest | kActPeek | kActNotify |
+                   kActProvide | (supported_formats & 0xFFFFu);
   WriteBeU32(p, flags);
   WriteBeU32(p + 4, 1u << 20);  // max text size = 1 MB
   return body;

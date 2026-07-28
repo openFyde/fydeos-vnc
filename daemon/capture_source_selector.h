@@ -38,7 +38,8 @@ namespace fydeos::vnc::daemon {
 // One instance per Pipeline. Owns the active capture + input sink pair.
 // Forwards captured frames to the daemon-supplied callback. Hides the
 // switch from upstream — same FrameCallback shape regardless of source.
-class CaptureSourceSelector : public ::fydeos::vnc::mojom::DisplayObserver {
+class CaptureSourceSelector : public ::fydeos::vnc::mojom::DisplayObserver,
+                              public ::fydeos::vnc::mojom::ClipboardObserver {
  public:
   enum class State { kKmsActive, kProbingFrameSink, kFrameSinkActive };
 
@@ -75,6 +76,9 @@ class CaptureSourceSelector : public ::fydeos::vnc::mojom::DisplayObserver {
     // (switch, hotplug, KMS fallback). Pipeline forwards it to the D-Bus
     // StatusChanged signal.
     base::RepeatingClosure display_state_changed;
+    // Fired when Chrome pushes a device-clipboard change (device →
+    // viewer direction). Pipeline forwards to VncServer::PushClipboard.
+    base::RepeatingCallback<void(const std::string&)> clipboard_changed;
   };
 
   CaptureSourceSelector(Config config,
@@ -112,6 +116,9 @@ class CaptureSourceSelector : public ::fydeos::vnc::mojom::DisplayObserver {
   void OnDisplaysChanged(
       std::vector<::fydeos::vnc::mojom::DisplayInfoPtr> displays) override;
 
+  // mojom::ClipboardObserver:
+  void OnClipboardChanged(const std::string& utf8) override;
+
  private:
   void OnFrameFromActive(std::unique_ptr<capture::Frame> frame);
   void TryEnterFrameSink();
@@ -141,6 +148,8 @@ class CaptureSourceSelector : public ::fydeos::vnc::mojom::DisplayObserver {
   std::vector<::fydeos::vnc::mojom::DisplayInfoPtr> displays_;
   ::mojo::Receiver<::fydeos::vnc::mojom::DisplayObserver>
       display_observer_receiver_{this};
+  ::mojo::Receiver<::fydeos::vnc::mojom::ClipboardObserver>
+      clipboard_observer_receiver_{this};
 };
 
 const char* StateToString(CaptureSourceSelector::State s);

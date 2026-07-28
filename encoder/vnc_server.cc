@@ -56,6 +56,87 @@ void SendExtClipMessage(rfbClientPtr cl, const std::string& body) {
   rfbWriteExact(cl, body.data(), static_cast<int>(body.size()));
 }
 
+extern rfbProtocolExtension kExtClipExtension;  // defined below
+
+// Per-client Extended Clipboard state is the raw flags word of the
+// client's caps message (0 until received; the action bits state which
+// messages the client accepts from us). It is stored INLINE in the
+// libvncserver extension data-pointer slot — deliberately not heap
+// allocated: libvncserver has no reliable per-client free point (the
+// close hook runs at rfbCloseClient, but the client can still be
+// iterated until it is reaped), so a pointer would dangle.
+//
+// Returns the slot if the client enabled the extension, else nullptr.
+// Slot presence == "client speaks Extended Clipboard".
+void** ExtClipDataSlot(rfbClientPtr cl) {
+  for (rfbExtensionData* d = cl->extensions; d; d = d->next) {
+    if (d->extension == &kExtClipExtension) {
+      return &d->data;
+    }
+  }
+  return nullptr;
+}
+
+uint32_t ExtClipClientCaps(void** slot) {
+  return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(*slot));
+}
+
+// Sends the legacy ServerCutText message. The wire format is Latin-1
+// per the RFB spec, so transliterate: code points ≤ 0xFF pass through,
+// anything else becomes '?'.
+void SendLegacyCutText(rfbClientPtr cl, const std::string& utf8) {
+  std::string latin1;
+  latin1.reserve(utf8.size());
+  for (size_t i = 0; i < utf8.size();) {
+    const uint8_t c = static_cast<uint8_t>(utf8[i]);
+    uint32_t cp = 0;
+    size_t n = 0;
+    if (c < 0x80) {
+      cp = c;
+      n = 1;
+    } else if ((c & 0xE0) == 0xC0) {
+      cp = c & 0x1F;
+      n = 2;
+    } else if ((c & 0xF0) == 0xE0) {
+      cp = c & 0x0F;
+      n = 3;
+    } else if ((c & 0xF8) == 0xF0) {
+      cp = c & 0x07;
+      n = 4;
+    } else {
+      ++i;  // stray continuation byte; skip
+      continue;
+    }
+    if (i + n > utf8.size()) {
+      break;  // truncated sequence at end of string
+    }
+    bool valid = true;
+    for (size_t k = 1; k < n; ++k) {
+      const uint8_t cc = static_cast<uint8_t>(utf8[i + k]);
+      if ((cc & 0xC0) != 0x80) {
+        valid = false;
+        break;
+      }
+      cp = (cp << 6) | (cc & 0x3F);
+    }
+    i += valid ? n : 1;
+    if (valid) {
+      latin1.push_back(cp <= 0xFF ? static_cast<char>(cp) : '?');
+    }
+  }
+  uint8_t header[8] = {};
+  header[0] = 3;  // rfbServerCutText
+  const uint32_t len = static_cast<uint32_t>(latin1.size());
+  header[4] = static_cast<uint8_t>((len >> 24) & 0xFF);
+  header[5] = static_cast<uint8_t>((len >> 16) & 0xFF);
+  header[6] = static_cast<uint8_t>((len >> 8) & 0xFF);
+  header[7] = static_cast<uint8_t>(len & 0xFF);
+  rfbWriteExact(cl, reinterpret_cast<const char*>(header), sizeof(header));
+  if (!latin1.empty()) {
+    rfbWriteExact(cl, latin1.data(), static_cast<int>(latin1.size()));
+  }
+}
+
 // RFB ClientCutText callback. With the FydeOS libvncserver patch, |len|
 // is the *signed* length on the wire:
 //   * len > 0  → legacy Latin-1 cut text (msg.cct.length raw bytes)
@@ -77,12 +158,33 @@ void SetXCutTextThunk(char* str, int len, rfbClientPtr cl) {
   const size_t body_len = static_cast<size_t>(-static_cast<int64_t>(len));
   auto msg = extclip::Parse(str, body_len);
   switch (msg.kind) {
+    case extclip::InboundKind::kCaps:
+      // Remember which actions the client accepts so the device→viewer
+      // push (PushClipboard) can pick notify vs direct provide.
+      if (void** slot = ExtClipDataSlot(cl)) {
+        *slot = reinterpret_cast<void*>(
+            static_cast<uintptr_t>(msg.caps_flags));
+      }
+      break;
     case extclip::InboundKind::kNotifyText:
       SendExtClipMessage(cl, extclip::BuildRequestBody());
       LOG(INFO) << "ExtClip: requested TEXT from client";
       break;
     case extclip::InboundKind::kProvideText:
       AsServer(cl)->OnClipboard(msg.text);
+      break;
+    case extclip::InboundKind::kRequestText:
+      // Client pulls the text we announced via notify (device→viewer).
+      SendExtClipMessage(
+          cl, extclip::BuildProvideTextBody(AsServer(cl)->latest_clipboard()));
+      LOG(INFO) << "ExtClip: provided TEXT to client";
+      break;
+    case extclip::InboundKind::kPeek:
+      SendExtClipMessage(
+          cl, extclip::BuildNotifyBody(
+                  AsServer(cl)->latest_clipboard().empty()
+                      ? 0
+                      : extclip::kFmtText));
       break;
     case extclip::InboundKind::kIgnored:
       break;
@@ -121,8 +223,16 @@ rfbBool ExtClipEnablePseudoEncoding(rfbClientPtr cl,
   if (encodingNumber != extclip::kPseudoEncoding) {
     return FALSE;
   }
+  // Runs on the first SetEncodings carrying our pseudo-encoding (and
+  // again on any re-negotiation, which is harmless: re-sending caps is
+  // spec-legal and the notify at most makes the client re-pull).
   SendExtClipMessage(cl, extclip::BuildCapsBody());
   LOG(INFO) << "ExtClip: advertised TEXT caps to client";
+  // Sync the device clipboard to a freshly connected viewer: announce
+  // cached text; the client pulls it with request → provide.
+  if (!AsServer(cl)->latest_clipboard().empty()) {
+    SendExtClipMessage(cl, extclip::BuildNotifyBody());
+  }
   return TRUE;
 }
 
@@ -457,6 +567,46 @@ void VncServer::OnPointerEvent(int button_mask, int x, int y) {
 void VncServer::OnClipboard(std::string_view utf8) {
   if (auto* sink = opts_.input_sink_provider.Run()) {
     sink->InjectClipboard(utf8);
+  }
+}
+
+void VncServer::PushClipboard(std::string utf8) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  latest_clipboard_ = std::move(utf8);
+  if (!started_ || !server_) {
+    return;
+  }
+  int pushed = 0;
+  rfbClientIteratorPtr it = rfbGetClientIterator(server_);
+  while (rfbClientPtr cl = rfbClientIteratorNext(it)) {
+    // Only clients past the handshake; the state enum is anonymous
+    // inside _rfbClientRec, so compare by index (4 = RFB_NORMAL).
+    if (cl->state != static_cast<decltype(cl->state)>(4)) {
+      continue;
+    }
+    if (void** slot = ExtClipDataSlot(cl)) {
+      // Extended Clipboard client. Spec flow: notify → client requests
+      // → we provide (handled in SetXCutTextThunk). If the client's
+      // caps accept provide but not notify, push the text directly.
+      const uint32_t caps = ExtClipClientCaps(slot);
+      if (caps != 0 && !(caps & extclip::kActNotify) &&
+          (caps & extclip::kActProvide)) {
+        SendExtClipMessage(cl,
+                           extclip::BuildProvideTextBody(latest_clipboard_));
+      } else {
+        SendExtClipMessage(
+            cl, extclip::BuildNotifyBody(
+                    latest_clipboard_.empty() ? 0 : extclip::kFmtText));
+      }
+    } else {
+      SendLegacyCutText(cl, latest_clipboard_);
+    }
+    ++pushed;
+  }
+  rfbReleaseClientIterator(it);
+  if (pushed > 0) {
+    VLOG(1) << "Clipboard pushed to " << pushed << " client(s), "
+            << latest_clipboard_.size() << " bytes";
   }
 }
 
