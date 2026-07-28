@@ -132,6 +132,7 @@ Chrome-based test) and the two host-driven tests reboot / suspend the device.
 | `vnc.LoginScreenInput` | At the genuine boot login screen (no session), VNC drives the "Add Person → Use local account" flow to create a local account and sign in |
 | `vnc.NoVNCSession` | The built-in noVNC web client connects and renders the desktop in a browser tab |
 | `vnc.DisplayHotplug` | Forcing an external display's connector off/on updates the daemon's inventory and capture falls back gracefully (needs an external display) |
+| `vnc.OOBESetup` | The OOBE setup screen appears only when a viewer is connected as onboarding finishes; Enable keeps the service listening, Disable turns it off, and a local setup with no viewer silently disables it |
 | `vnc.RebootPersistence` | *(host-driven)* The enabled state (Chrome pref) persists across a reboot |
 | `vnc.SuspendResume` | *(host-driven)* The daemon keeps serving after a suspend/resume cycle |
 
@@ -182,37 +183,7 @@ matrix in section 5 shows where each function is covered. Record each case as
 Pass / Fail / Blocked with notes. "Viewer" means a VeNCrypt-capable VNC client
 (TigerVNC recommended) unless stated otherwise.
 
-### 4.1 OOBE flow
-
-The OOBE setup screen only appears when a VNC client is connected as OOBE
-finishes, so it cannot be reached by the automated suite.
-
-**M-OOBE-1 — Remote setup, keep enabled with password**
-Precondition: device freshly reset, VNC connectable during OOBE.
-1. From a viewer, walk through OOBE remotely.
-2. At the end of OOBE, expected: a VNC setup screen appears (because a VNC
-   session is active) explaining the feature, with password + confirm fields,
-   an "allow insecure connections" option, Enable and Disable buttons.
-3. Enter matching passwords and click Enable.
-   Expected: setup completes; VNC stays enabled; reconnecting now requires
-   the new password.
-
-**M-OOBE-2 — Remote setup, disable at the end**
-As M-OOBE-1, but click Disable. Expected: VNC service is disabled after
-OOBE; no further connections possible; Settings shows it off.
-
-**M-OOBE-3 — Enable without password**
-As M-OOBE-1, but click Enable with empty password fields.
-Expected: a confirmation dialog warns about enabling without a password;
-cancelling returns to the form; confirming enables passwordless (TLS-only)
-access.
-
-**M-OOBE-4 — Local setup (no VNC session)**
-Complete OOBE locally with no VNC client connected.
-Expected: the VNC setup screen is *not* shown; after OOBE the VNC service is
-disabled by default.
-
-### 4.2 Viewing and input
+### 4.1 Viewing and input
 
 **M-INP-3 — Keyboard layouts and IME**
 Precondition: logged in, a non-US layout or CJK IME added on the DUT.
@@ -222,7 +193,7 @@ Precondition: logged in, a non-US layout or CJK IME added on the DUT.
    Expected: composition and candidate windows behave as with a local
    keyboard.
 
-### 4.3 Clients, web access, discovery
+### 4.2 Clients, web access, discovery
 
 **M-CLI-1 — Client compatibility matrix**
 Connect, authenticate (with and without password), view, and type with each
@@ -241,7 +212,7 @@ Expected: the service re-binds to the new LAN address; Settings shows the
 updated address; a viewer can connect on the new address. (Runtime re-bind is
 a known product gap — record the actual behavior.)
 
-### 4.4 Performance
+### 4.3 Performance
 
 **M-PRF-1 — Latency and quality feel**
 On an idle LAN, with one viewer at native resolution:
@@ -283,7 +254,7 @@ On an idle LAN, with one viewer at native resolution:
 | Suspend/resume | `vnc.SuspendResume` | — |
 | Reboot persistence | `vnc.RebootPersistence` | — |
 | noVNC web access | `vnc.NoVNCWeb`, `vnc.NoVNCSession`; `x01`, `x03` | — |
-| OOBE setup screen | — | M-OOBE-1…4 |
+| OOBE setup screen (gating, Enable, Disable) | `vnc.OOBESetup` | — |
 | Concurrent viewers | `x02` | M-CLI-1 |
 | Client compatibility | protocol level: `vnc.AuthMatrix` + two independent RFB client implementations | M-CLI-1 |
 | CPU targets | `vnc.Performance` | M-PRF-1 |
@@ -291,16 +262,16 @@ On an idle LAN, with one viewer at native resolution:
 | Auth abuse resilience | `vnc.AuthAbuse` | — |
 
 Notes:
-- What genuinely needs a human (all that is left in section 4): the OOBE setup
-  screen (M-OOBE-1…4), IME / non-US layout (M-INP-3), network change /
-  runtime re-bind (M-NET-2, a product gap), third-party client compatibility
-  (M-CLI-1), and the subjective latency / quality feel (M-PRF-1).
+- What genuinely needs a human (all that is left in section 4): IME / non-US
+  layout (M-INP-3), network change / runtime re-bind (M-NET-2, a product gap),
+  third-party client compatibility (M-CLI-1), and the subjective latency /
+  quality feel (M-PRF-1).
 - Every other former manual case — enable/disable, fingerprint, password,
   certificate regeneration, pre-login & lock-screen input, session
   transitions, suspend/resume, mDNS, auth abuse, no-plaintext, display
-  hotplug, full noVNC session, pointer drag, multi-display content/input, and
-  clipboard (both directions) — is fully automated and has been deleted from
-  this section; see the matrix above.
+  hotplug, full noVNC session, pointer drag, multi-display content/input,
+  clipboard (both directions), and the OOBE setup screen — is fully automated
+  and has been deleted from this section; see the matrix above.
 - Tight encoding is exercised only by real viewers (the noVNC session and
   M-CLI-1); the automated RFB test clients decode Raw.
 
@@ -310,7 +281,7 @@ Notes:
 
 - **Smoke (automated, ≈4 min)**: `tast run <dut> vnc.Lifecycle vnc.DBusAPI
   vnc.CaptureKMS` — service up, API sane, pixels flowing.
-- **Full automated (24 tests, ≈15–25 min)**: `tast run <dut> 'vnc.*'` on a
+- **Full automated (25 tests, ≈15–25 min)**: `tast run <dut> 'vnc.*'` on a
   test-image DUT (attach a second display for the multi-display / hotplug
   checks), then `./run_all.sh` from a host on the DUT's LAN for the external
   checks. Includes reboot, suspend/resume, and the login-screen flow, so it
