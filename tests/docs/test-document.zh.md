@@ -8,7 +8,7 @@
 - **外部观察者测试（shell 套件）** —— 一小组只有从 DUT 所在局域网的另一台
   主机才有意义的检查：mDNS 传播、并发查看器、主机侧性能。
 `vnc.*` Tast 测试与 `x0*` shell 检查合在一起覆盖全部 VNC 功能 —— 没有手动
-用例。第 5 节的覆盖矩阵列出了每个功能对应的测试。
+用例。第 4 节的覆盖矩阵列出了每个功能对应的测试。
 
 ---
 
@@ -161,72 +161,46 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # 帧率/带宽
 
 ---
 
-## 4. 手动测试用例
+## 4. 覆盖矩阵
 
-无。全部 VNC 功能均已由第 3 节的自动化套件覆盖 —— 第 5 节的覆盖矩阵列出了
-每个功能对应的测试。
-
-明确交给用户验收测试（UAT）而不写成脚本用例的部分：主观画质体验（运动、
-视频、清晰度），以及 TigerVNC 与内置 noVNC 之外的客户端兼容性（RealVNC、
-移动端应用）。另外不测试：输入法组合与非美式键盘布局；以及网络切换后的
-运行时重新绑定 —— 守护进程仅在启动时绑定一次，因此 Wi-Fi/有线切换后查看器
-需以新地址重新连接。
-
----
-
-## 5. 覆盖矩阵
-
-| 功能 | 自动化 | 手动 |
-|---|---|---|
-| 服务启动/停止/自动重启/沙箱 | `vnc.Lifecycle` | — |
-| 设置开关与状态 | `vnc.Settings`、`vnc.DBusAPI` | — |
-| 开关对监听器的生命周期控制 | `vnc.DBusAPI`、`vnc.NetworkBinding` | — |
-| 启用状态在重启后保持 | `vnc.RebootPersistence` | — |
-| 强制 TLS、证书、指纹 | `vnc.TLSCertificate`、`vnc.AuthMatrix`、`vnc.Settings` | — |
-| 证书重新生成 | `vnc.DBusAPI`、`vnc.TLSCertificate`、`vnc.Settings` | — |
-| 密码认证（bcrypt、实时生效） | `vnc.DBusAPI`、`vnc.AuthMatrix`、`vnc.SettingsPassword` | — |
-| 不安全客户端模式（VncAuth/明文） | `vnc.AuthMatrix` | — |
-| 回环/网页认证快速通道 | `vnc.AuthMatrix`、`vnc.NoVNCWeb` | — |
-| 仅绑定局域网 | `vnc.NetworkBinding` | — |
-| mDNS 发现 | `vnc.NetworkBinding`（出现+撤销）；`x01`（外部传播） | — |
-| 登录前（KMS）捕获 | `vnc.CaptureKMS`、`vnc.SessionTransition`、`vnc.LoginScreenInput` | — |
-| 登录后（合成器）捕获 | `vnc.CaptureChrome` | — |
-| 增量更新流、帧率 | `vnc.CaptureChrome`；`x03` | — |
-| 帧缓冲几何/对齐/尺寸变化 | `vnc.CaptureKMS`、`vnc.MultiDisplay` | — |
-| 登录前 / 锁屏输入 | `vnc.LockScreen`、`vnc.LoginScreenInput` | — |
-| 登录后输入（按键、滚轮、拖拽、键盘） | `vnc.InputInjection`、`vnc.InputParity` | — |
-| 剪贴板（双向） | `vnc.Clipboard`（查看器→设备粘贴；设备→查看器 legacy + Extended Clipboard、连接时同步、UTF-8、约 1 MB 负载） | — |
-| 多显示器枚举/切换/内容/输入 | `vnc.MultiDisplay` | — |
-| 显示器热插拔 | `vnc.DisplayHotplug` | — |
-| 登出/登录/崩溃健壮性 | `vnc.SessionTransition` | — |
-| 锁屏 | `vnc.LockScreen` | — |
-| 休眠/唤醒 | `vnc.SuspendResume` | — |
-| 重启持久化 | `vnc.RebootPersistence` | — |
-| noVNC 网页访问 | `vnc.NoVNCWeb`、`vnc.NoVNCSession`；`x01`、`x03` | — |
-| OOBE 设置屏（门控、启用、禁用） | `vnc.OOBESetup` | — |
-| 并发查看器 | `x02` | — |
-| 客户端兼容性 | `x04`（TigerVNC：VeNCrypt X509 + 真实桌面）；协议层：`vnc.AuthMatrix` | — |
-| CPU 指标（空闲 1%、串流 15%） | `x04`（真实 Tight 查看器） | — |
-| 输入（点击到像素）延迟 | `vnc.Performance`（上报，80 ms 指标） | — |
-| 主机侧延迟/吞吐 | `x03` | — |
-| 认证滥用防护 | `vnc.AuthAbuse` | — |
-
-说明：
-- 第 4 节已为空：所有功能均有自动化测试。交给用户验收测试的部分：主观画质，
-  以及 TigerVNC（由 `x04` 覆盖）与内置 noVNC 之外的客户端。
-- 明确不测试的项：输入法组合与非美式键盘布局；以及网络切换后的运行时重新
-  绑定 —— 守护进程未实现该能力（仅在启动时绑定一次，因此 Wi-Fi/有线切换后
-  查看器需以新地址重新连接）。
-- 本文档曾列为手动的全部用例 —— 开关、指纹、密码、证书重新生成、登录前与
-  锁屏输入、会话切换、休眠/唤醒、mDNS、认证滥用、无明文、显示器热插拔、
-  完整 noVNC 会话、指针拖拽、多显示器内容/输入、剪贴板（双向）、OOBE 设置屏、
-  点击延迟、TigerVNC 兼容性 —— 现均已自动化；见上方矩阵。
-- Tight 编码仅由真实查看器（noVNC 会话与 `x04` 的 TigerVNC）请求；本套件
-  自身的 RFB 客户端仅解码 Raw。
+| 功能 | 自动化 |
+|---|---|
+| 服务启动/停止/自动重启/沙箱 | `vnc.Lifecycle` |
+| 设置开关与状态 | `vnc.Settings`、`vnc.DBusAPI` |
+| 开关对监听器的生命周期控制 | `vnc.DBusAPI`、`vnc.NetworkBinding` |
+| 启用状态在重启后保持 | `vnc.RebootPersistence` |
+| 强制 TLS、证书、指纹 | `vnc.TLSCertificate`、`vnc.AuthMatrix`、`vnc.Settings` |
+| 证书重新生成 | `vnc.DBusAPI`、`vnc.TLSCertificate`、`vnc.Settings` |
+| 密码认证（bcrypt、实时生效） | `vnc.DBusAPI`、`vnc.AuthMatrix`、`vnc.SettingsPassword` |
+| 不安全客户端模式（VncAuth/明文） | `vnc.AuthMatrix` |
+| 回环/网页认证快速通道 | `vnc.AuthMatrix`、`vnc.NoVNCWeb` |
+| 仅绑定局域网 | `vnc.NetworkBinding` |
+| mDNS 发现 | `vnc.NetworkBinding`（出现+撤销）；`x01`（外部传播） |
+| 登录前（KMS）捕获 | `vnc.CaptureKMS`、`vnc.SessionTransition`、`vnc.LoginScreenInput` |
+| 登录后（合成器）捕获 | `vnc.CaptureChrome` |
+| 增量更新流、帧率 | `vnc.CaptureChrome`；`x03` |
+| 帧缓冲几何/对齐/尺寸变化 | `vnc.CaptureKMS`、`vnc.MultiDisplay` |
+| 登录前 / 锁屏输入 | `vnc.LockScreen`、`vnc.LoginScreenInput` |
+| 登录后输入（按键、滚轮、拖拽、键盘） | `vnc.InputInjection`、`vnc.InputParity` |
+| 剪贴板（双向） | `vnc.Clipboard`（查看器→设备粘贴；设备→查看器 legacy + Extended Clipboard、连接时同步、UTF-8、约 1 MB 负载） |
+| 多显示器枚举/切换/内容/输入 | `vnc.MultiDisplay` |
+| 显示器热插拔 | `vnc.DisplayHotplug` |
+| 登出/登录/崩溃健壮性 | `vnc.SessionTransition` |
+| 锁屏 | `vnc.LockScreen` |
+| 休眠/唤醒 | `vnc.SuspendResume` |
+| 重启持久化 | `vnc.RebootPersistence` |
+| noVNC 网页访问 | `vnc.NoVNCWeb`、`vnc.NoVNCSession`；`x01`、`x03` |
+| OOBE 设置屏（门控、启用、禁用） | `vnc.OOBESetup` |
+| 并发查看器 | `x02` |
+| 客户端兼容性 | `x04`（TigerVNC：VeNCrypt X509 + 真实桌面）；协议层：`vnc.AuthMatrix` |
+| CPU 指标（空闲 1%、串流 15%） | `x04`（真实 Tight 查看器） |
+| 输入（点击到像素）延迟 | `vnc.Performance`（上报，80 ms 指标） |
+| 主机侧延迟/吞吐 | `x03` |
+| 认证滥用防护 | `vnc.AuthAbuse` |
 
 ---
 
-## 6. 建议的测试轮次
+## 5. 建议的测试轮次
 
 - **冒烟测试（约 4 分钟，自动化）**：`tast run <dut> vnc.Lifecycle
   vnc.DBusAPI vnc.CaptureKMS` —— 服务在线、API 正常、画面可达。

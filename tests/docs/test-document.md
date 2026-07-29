@@ -11,7 +11,7 @@ covers two complementary automated suites:
   make sense from a separate host on the DUT's LAN: mDNS propagation, concurrent
   viewers, and host-side performance.
 Together the `vnc.*` Tast tests and the `x0*` shell checks cover all VNC
-functions — there are no manual test cases. The coverage matrix in section 5
+functions — there are no manual test cases. The coverage matrix in section 4
 maps every function to the test that covers it.
 
 ---
@@ -170,78 +170,46 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # fps/bandwidth
 
 ---
 
-## 4. Manual test cases
+## 4. Coverage matrix
 
-None. Every VNC function is covered by the automated suites in section 3 — the
-coverage matrix in section 5 maps each function to the test that covers it.
-
-What is deliberately left to user acceptance testing rather than a scripted
-case: the subjective picture-quality feel (motion, video, sharpness), and
-compatibility with VNC clients other than TigerVNC and the built-in noVNC
-(RealVNC, mobile apps). Also not tested: IME composition and non-US keyboard
-layouts, and runtime re-binding after a network change — the daemon binds once
-at start-up, so a viewer must reconnect on the new address after a
-Wi-Fi/Ethernet switch.
-
----
-
-## 5. Coverage matrix
-
-| Function | Automated | Manual |
-|---|---|---|
-| Service start/stop/respawn/sandbox | `vnc.Lifecycle` | — |
-| Settings toggle & status | `vnc.Settings`, `vnc.DBusAPI` | — |
-| Enable/disable listener lifecycle | `vnc.DBusAPI`, `vnc.NetworkBinding` | — |
-| Enabled state persists across reboot | `vnc.RebootPersistence` | — |
-| TLS mandatory, cert, fingerprint | `vnc.TLSCertificate`, `vnc.AuthMatrix`, `vnc.Settings` | — |
-| Certificate regeneration | `vnc.DBusAPI`, `vnc.TLSCertificate`, `vnc.Settings` | — |
-| Password auth (bcrypt, live update) | `vnc.DBusAPI`, `vnc.AuthMatrix`, `vnc.SettingsPassword` | — |
-| Insecure-client mode (VncAuth/plain) | `vnc.AuthMatrix` | — |
-| Loopback/web auth fast path | `vnc.AuthMatrix`, `vnc.NoVNCWeb` | — |
-| LAN-only binding | `vnc.NetworkBinding` | — |
-| mDNS discovery | `vnc.NetworkBinding` (present + withdrawn); `x01` (external propagation) | — |
-| Pre-login (KMS) capture | `vnc.CaptureKMS`, `vnc.SessionTransition`, `vnc.LoginScreenInput` | — |
-| In-session (compositor) capture | `vnc.CaptureChrome` | — |
-| Damage/update stream, fps | `vnc.CaptureChrome`; `x03` | — |
-| Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` | — |
-| Pre-login / lock-screen input | `vnc.LockScreen`, `vnc.LoginScreenInput` | — |
-| In-session input (buttons, wheel, drag, keys) | `vnc.InputInjection`, `vnc.InputParity` | — |
-| Clipboard (both directions) | `vnc.Clipboard` (viewer→device paste; device→viewer legacy + Extended Clipboard, connect-time sync, UTF-8, ~1 MB payload) | — |
-| Multi-display enumeration/switch/content/input | `vnc.MultiDisplay` | — |
-| Display hotplug | `vnc.DisplayHotplug` | — |
-| Logout/login/crash resilience | `vnc.SessionTransition` | — |
-| Lock screen | `vnc.LockScreen` | — |
-| Suspend/resume | `vnc.SuspendResume` | — |
-| Reboot persistence | `vnc.RebootPersistence` | — |
-| noVNC web access | `vnc.NoVNCWeb`, `vnc.NoVNCSession`; `x01`, `x03` | — |
-| OOBE setup screen (gating, Enable, Disable) | `vnc.OOBESetup` | — |
-| Concurrent viewers | `x02` | — |
-| Client compatibility | `x04` (TigerVNC: VeNCrypt X509 + real desktop); protocol level: `vnc.AuthMatrix` | — |
-| CPU targets (idle 1%, streaming 15%) | `x04` (real Tight viewer) | — |
-| Input (click-to-pixel) latency | `vnc.Performance` (reported, 80 ms target) | — |
-| Host-side latency/throughput | `x03` | — |
-| Auth abuse resilience | `vnc.AuthAbuse` | — |
-
-Notes:
-- Section 4 is empty: every function has an automated test. Left to user
-  acceptance testing: subjective picture quality, and clients other than
-  TigerVNC (covered by `x04`) and the built-in noVNC.
-- Deliberately not tested: IME composition and non-US keyboard layouts; and
-  runtime re-binding after a network change, which the daemon does not
-  implement (it binds once at start-up, so a viewer must reconnect on the new
-  address after a Wi-Fi/Ethernet switch).
-- Every case this document once listed as manual — enable/disable,
-  fingerprint, password, certificate regeneration, pre-login & lock-screen
-  input, session transitions, suspend/resume, mDNS, auth abuse, no-plaintext,
-  display hotplug, full noVNC session, pointer drag, multi-display
-  content/input, clipboard (both directions), the OOBE setup screen, click
-  latency, and TigerVNC compatibility — is now automated; see the matrix.
-- Tight encoding is requested only by real viewers (the noVNC session and
-  `x04`'s TigerVNC); the suite's own RFB clients decode Raw.
+| Function | Automated |
+|---|---|
+| Service start/stop/respawn/sandbox | `vnc.Lifecycle` |
+| Settings toggle & status | `vnc.Settings`, `vnc.DBusAPI` |
+| Enable/disable listener lifecycle | `vnc.DBusAPI`, `vnc.NetworkBinding` |
+| Enabled state persists across reboot | `vnc.RebootPersistence` |
+| TLS mandatory, cert, fingerprint | `vnc.TLSCertificate`, `vnc.AuthMatrix`, `vnc.Settings` |
+| Certificate regeneration | `vnc.DBusAPI`, `vnc.TLSCertificate`, `vnc.Settings` |
+| Password auth (bcrypt, live update) | `vnc.DBusAPI`, `vnc.AuthMatrix`, `vnc.SettingsPassword` |
+| Insecure-client mode (VncAuth/plain) | `vnc.AuthMatrix` |
+| Loopback/web auth fast path | `vnc.AuthMatrix`, `vnc.NoVNCWeb` |
+| LAN-only binding | `vnc.NetworkBinding` |
+| mDNS discovery | `vnc.NetworkBinding` (present + withdrawn); `x01` (external propagation) |
+| Pre-login (KMS) capture | `vnc.CaptureKMS`, `vnc.SessionTransition`, `vnc.LoginScreenInput` |
+| In-session (compositor) capture | `vnc.CaptureChrome` |
+| Damage/update stream, fps | `vnc.CaptureChrome`; `x03` |
+| Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` |
+| Pre-login / lock-screen input | `vnc.LockScreen`, `vnc.LoginScreenInput` |
+| In-session input (buttons, wheel, drag, keys) | `vnc.InputInjection`, `vnc.InputParity` |
+| Clipboard (both directions) | `vnc.Clipboard` (viewer→device paste; device→viewer legacy + Extended Clipboard, connect-time sync, UTF-8, ~1 MB payload) |
+| Multi-display enumeration/switch/content/input | `vnc.MultiDisplay` |
+| Display hotplug | `vnc.DisplayHotplug` |
+| Logout/login/crash resilience | `vnc.SessionTransition` |
+| Lock screen | `vnc.LockScreen` |
+| Suspend/resume | `vnc.SuspendResume` |
+| Reboot persistence | `vnc.RebootPersistence` |
+| noVNC web access | `vnc.NoVNCWeb`, `vnc.NoVNCSession`; `x01`, `x03` |
+| OOBE setup screen (gating, Enable, Disable) | `vnc.OOBESetup` |
+| Concurrent viewers | `x02` |
+| Client compatibility | `x04` (TigerVNC: VeNCrypt X509 + real desktop); protocol level: `vnc.AuthMatrix` |
+| CPU targets (idle 1%, streaming 15%) | `x04` (real Tight viewer) |
+| Input (click-to-pixel) latency | `vnc.Performance` (reported, 80 ms target) |
+| Host-side latency/throughput | `x03` |
+| Auth abuse resilience | `vnc.AuthAbuse` |
 
 ---
 
-## 6. Recommended test passes
+## 5. Recommended test passes
 
 - **Smoke (automated, ≈4 min)**: `tast run <dut> vnc.Lifecycle vnc.DBusAPI
   vnc.CaptureKMS` — service up, API sane, pixels flowing.
