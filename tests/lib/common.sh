@@ -39,7 +39,26 @@ assert_not_contains() {
 # SSH to the device. Uses sshpass if available and DEVICE_PASSWORD is set.
 SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           -o ConnectTimeout=10 -o LogLevel=ERROR -p "$DEVICE_SSH_PORT")
-[[ -n "${DEVICE_SSH_KEY:-}" ]] && SSH_OPTS+=(-o IdentitiesOnly=yes -i "$DEVICE_SSH_KEY")
+# A set-but-unusable key must fail loudly here: IdentitiesOnly=yes suppresses
+# the user's default keys/agent, so ssh would degrade into an interactive
+# password prompt that test images reject — which looks like a wrong port or
+# password rather than what it is.
+if [[ -n "${DEVICE_SSH_KEY:-}" ]]; then
+  if [[ ! -r "$DEVICE_SSH_KEY" ]]; then
+    echo "ERROR: DEVICE_SSH_KEY '$DEVICE_SSH_KEY' does not exist or is not readable." >&2
+    echo "  Copy the test key first:  cp <checkout>/chromite/ssh_keys/testing_rsa ~/.ssh/ && chmod 600 ~/.ssh/testing_rsa" >&2
+    echo "  Or unset DEVICE_SSH_KEY to use your default SSH identities." >&2
+    exit 2
+  fi
+  case "$(stat -c %a "$DEVICE_SSH_KEY" 2>/dev/null)" in
+    *00) ;;  # 600/400: fine
+    *) echo "WARN: $DEVICE_SSH_KEY permissions are too open; ssh may ignore it (chmod 600 it)." >&2 ;;
+  esac
+  SSH_OPTS+=(-o IdentitiesOnly=yes -i "$DEVICE_SSH_KEY")
+fi
+# Never fall back to an interactive password prompt inside a test script —
+# unless a password is configured, in which case sshpass needs the prompt.
+[[ -z "${DEVICE_PASSWORD:-}" ]] && SSH_OPTS+=(-o BatchMode=yes)
 dssh() {
   if command -v sshpass >/dev/null 2>&1 && [[ -n "$DEVICE_PASSWORD" ]]; then
     sshpass -p "$DEVICE_PASSWORD" ssh "${SSH_OPTS[@]}" \
