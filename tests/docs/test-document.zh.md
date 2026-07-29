@@ -110,7 +110,7 @@ tast run <dut-ip>[:ssh-port] 'vnc.*'
 | `vnc.NoVNCWeb` | 以守护进程证书通过 HTTPS 提供 noVNC 页面；websockify 后端；明文 HTTP 策略与 WebSocket 升级为观察性检查（记录、不判失败） |
 | `vnc.SessionTransition` | KMS（登录前）→ FrameSink（登录）→ KMS（登出），守护进程全程不掉线且持续提供画面 |
 | `vnc.MultiDisplay` | 显示器清单；切换捕获显示器后帧缓冲变为该显示器几何尺寸并可切回；帧内容为该显示器画面且注入点击落在该显示器上；未知 id 错误路径（仅一台显示器时跳过切换检查） |
-| `vnc.Performance` | 守护进程空闲与查看器串流时的 CPU，按宽松的回归上限上报 perf 管线（< 1% / 15% 设计指标仅供参考：Raw-only 测试客户端与 Tight 查看器不可直接比较） |
+| `vnc.Performance` | 守护进程空闲与查看器串流时的 CPU 及点击到像素延迟，按随分辨率缩放的回归上限上报 perf 管线（Raw-only 客户端与 Tight 查看器不可直接比较 —— Tight 侧 CPU 数字由 `x04` 提供） |
 | `vnc.InputParity` | 经 RFB 注入的右键弹出上下文菜单、中键打开新标签页、滚轮滚动、拖拽选中文本、拖动标题区移动窗口 |
 | `vnc.Clipboard` | 查看器的 RFB cut-text 被粘贴进聚焦的输入框；设备侧复制推送到查看器 —— legacy Latin-1 ServerCutText 与 Extended Clipboard（notify→request→provide、UTF-8 完整、连接时同步、约 1 MB 负载） |
 | `vnc.AuthAbuse` | 反复错误密码均被拒且守护进程保持健康（未实现按 IP 退避） |
@@ -142,7 +142,7 @@ cd tests
 | `x01_discovery.sh` | mDNS `_rfb._tcp` "FydeOS VNC" 记录对局域网内其他主机可见；RFB/noVNC 端口可从另一台机器访问 |
 | `x02_multiclient.sh` | 多个查看器同时连接 —— 各自完成握手与抓帧 —— 之后守护进程仍健康 |
 | `x03_performance.sh` | 主机侧整帧往返（连接+TLS+认证+首帧）以及查看器在线路上观察到的更新吞吐/帧率 |
-| `x04_tigervnc.sh` | 独立客户端（TigerVNC，Xvfb 无头运行）完成 VeNCrypt/X509 握手、打开真实桌面，且守护进程保持健康 |
+| `x04_tigervnc.sh` | 独立客户端（TigerVNC，Xvfb 无头运行）完成 VeNCrypt/X509 握手、打开真实桌面，且守护进程保持健康；同时在指针驱动的画面变化下采样守护进程 Tight 路径串流 CPU（Tast 客户端仅支持 Raw） |
 
 `x01` 的发现与可达性检查需要真实的局域网路径，在 NAT 之后会 WARN。
 `x02`/`x03` 在设备不可直连时会自动建立隧道（隧道数值含 SSH 开销）。

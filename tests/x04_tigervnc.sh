@@ -62,7 +62,7 @@ run_viewer() {  # extra args... -> writes $log
   log="$ARTIFACTS/tigervnc.$$.log"
   # -extension GLX: some hosts ship an Xvfb that crashes initialising GLX
   # against the system EGL driver; the viewer does not need it.
-  timeout 25 xvfb-run -a -s "-screen 0 1280x1024x24 -extension GLX" vncviewer \
+  timeout 40 xvfb-run -a -s "-screen 0 1280x1024x24 -extension GLX" vncviewer \
       -SecurityTypes=X509None,X509Plain \
       -X509CA="$ca" \
       -PreferredEncoding=Tight \
@@ -70,7 +70,51 @@ run_viewer() {  # extra args... -> writes $log
       -Log '*:stderr:100' \
       "$@" "$target" >"$log" 2>&1 &
   vpid=$!
-  sleep 12
+  sleep 6   # handshake + first frame
+
+  # --- Tight-path streaming CPU -------------------------------------------
+  # vnc.Performance measures streaming CPU with a Raw-only client; TigerVNC is
+  # the Tight-capable one, so the Tight-side number is measured here. Damage
+  # is generated through a second VNC connection sweeping the pointer — the
+  # daemon composites the cursor into the framebuffer, so cursor motion is
+  # real damage TigerVNC must stream. NB: this is a continuous-small-damage
+  # profile, not the full-screen video the <15% design target describes.
+  python3 - "$RFB_HOST" "$RFB_PORT" 9 "$(dirname "$0")/lib" <<'PYEOF' >/dev/null 2>&1 &
+import math, sys, time
+sys.path.insert(0, sys.argv[4])
+import vncrfb
+c = vncrfb.RfbClient(sys.argv[1], int(sys.argv[2]), security='vencrypt')
+c.connect()
+end = time.time() + float(sys.argv[3])
+i = 0
+while time.time() < end:
+    x = int(c.width/2 + (c.width/3)*math.sin(i/17.0))
+    y = int(c.height/2 + (c.height/3)*math.cos(i/23.0))
+    c.pointer_event(x, y, 0)
+    i += 1
+    time.sleep(0.02)
+PYEOF
+  sweep_pid=$!
+  sleep 2   # let the sweep start producing damage
+  # Sample the daemon's CPU on the DUT over one SSH call (CLK_TCK=100; 5s
+  # window → %CPU = delta_ticks / 5).
+  ticks="$(dssh 'pid=$(pgrep -o -x fydeos-vncd); r1=$(awk "{print \$14+\$15}" /proc/$pid/stat); sleep 5; r2=$(awk "{print \$14+\$15}" /proc/$pid/stat); echo $((r2-r1))' 2>/dev/null | tr -dc 0-9)"
+  wait "$sweep_pid" 2>/dev/null
+  if [[ -n "$ticks" ]]; then
+    tight_cpu=$(( ticks / 5 ))
+    info "Tight-path streaming CPU under pointer-driven damage: ~${tight_cpu}% of one core"
+    if (( tight_cpu > 50 )); then
+      fail "Tight streaming CPU ${tight_cpu}% is unreasonably high for cursor-sized damage"
+    elif (( tight_cpu > 15 )); then
+      warn "Tight streaming CPU ${tight_cpu}% exceeds the 15% design target even for cursor-sized damage"
+    else
+      pass "Tight-path streaming stayed cheap (~${tight_cpu}% CPU under continuous damage)"
+    fi
+  else
+    warn "could not sample the daemon CPU over SSH — Tight streaming cost not measured"
+  fi
+  # ------------------------------------------------------------------------
+
   kill "$vpid" 2>/dev/null
   wait "$vpid" 2>/dev/null
 }

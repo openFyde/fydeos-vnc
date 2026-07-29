@@ -11,6 +11,8 @@ banner "discovery & external reachability"
 require_device
 require_listening
 
+
+
 lan_ip="$(device_lan_ip)"
 info "device LAN address: ${lan_ip:-unknown}"
 
