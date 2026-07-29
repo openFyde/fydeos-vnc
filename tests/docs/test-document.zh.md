@@ -110,7 +110,7 @@ tast run <dut-ip>[:ssh-port] 'vnc.*'
 | `vnc.NoVNCWeb` | 以守护进程证书通过 HTTPS 提供 noVNC 页面；websockify 后端；明文 HTTP 策略与 WebSocket 升级为观察性检查（记录、不判失败） |
 | `vnc.SessionTransition` | KMS（登录前）→ FrameSink（登录）→ KMS（登出），守护进程全程不掉线且持续提供画面 |
 | `vnc.MultiDisplay` | 显示器清单；切换捕获显示器后帧缓冲变为该显示器几何尺寸并可切回；帧内容为该显示器画面且注入点击落在该显示器上；未知 id 错误路径（仅一台显示器时跳过切换检查） |
-| `vnc.Performance` | 守护进程空闲与查看器串流时的 CPU 及点击到像素延迟，按随分辨率缩放的回归上限上报 perf 管线（Raw-only 客户端与 Tight 查看器不可直接比较 —— Tight 侧 CPU 数字由 `x04` 提供） |
+| `vnc.Performance` | 线路上的点击到像素输入延迟，按 80 ms 设计指标上报 perf 管线（守护进程 CPU 由 `x04` 测量 —— 那里有真实的 Tight 查看器） |
 | `vnc.InputParity` | 经 RFB 注入的右键弹出上下文菜单、中键打开新标签页、滚轮滚动、拖拽选中文本、拖动标题区移动窗口 |
 | `vnc.Clipboard` | 查看器的 RFB cut-text 被粘贴进聚焦的输入框；设备侧复制推送到查看器 —— legacy Latin-1 ServerCutText 与 Extended Clipboard（notify→request→provide、UTF-8 完整、连接时同步、约 1 MB 负载） |
 | `vnc.AuthAbuse` | 反复错误密码均被拒且守护进程保持健康（未实现按 IP 退避） |
@@ -142,7 +142,7 @@ cd tests
 | `x01_discovery.sh` | mDNS `_rfb._tcp` "FydeOS VNC" 记录对局域网内其他主机可见；RFB/noVNC 端口可从另一台机器访问 |
 | `x02_multiclient.sh` | 多个查看器同时连接 —— 各自完成握手与抓帧 —— 之后守护进程仍健康 |
 | `x03_performance.sh` | 主机侧整帧往返（连接+TLS+认证+首帧）以及查看器在线路上观察到的更新吞吐/帧率 |
-| `x04_tigervnc.sh` | 独立客户端（TigerVNC，Xvfb 无头运行）完成 VeNCrypt/X509 握手、打开真实桌面，且守护进程保持健康；同时在指针驱动的画面变化下采样守护进程 Tight 路径串流 CPU（Tast 客户端仅支持 Raw） |
+| `x04_tigervnc.sh` | 独立客户端（TigerVNC，Xvfb 无头运行）完成 VeNCrypt/X509 握手、打开真实桌面，且守护进程保持健康；测量全部守护进程 CPU 指标 —— 空闲（1% 指标）与指针驱动画面变化下的 Tight 路径串流（15% 指标） |
 
 `x01` 的发现与可达性检查需要真实的局域网路径，在 NAT 之后会 WARN。
 `x02`/`x03` 在设备不可直连时会自动建立隧道（隧道数值含 SSH 开销）。
@@ -191,7 +191,7 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # 帧率/带宽
 | mDNS 发现 | `vnc.NetworkBinding`（出现+撤销）；`x01`（外部传播） | — |
 | 登录前（KMS）捕获 | `vnc.CaptureKMS`、`vnc.SessionTransition`、`vnc.LoginScreenInput` | — |
 | 登录后（合成器）捕获 | `vnc.CaptureChrome` | — |
-| 增量更新流、帧率 | `vnc.CaptureChrome`、`vnc.Performance`；`x03` | — |
+| 增量更新流、帧率 | `vnc.CaptureChrome`；`x03` | — |
 | 帧缓冲几何/对齐/尺寸变化 | `vnc.CaptureKMS`、`vnc.MultiDisplay` | — |
 | 登录前 / 锁屏输入 | `vnc.LockScreen`、`vnc.LoginScreenInput` | — |
 | 登录后输入（按键、滚轮、拖拽、键盘） | `vnc.InputInjection`、`vnc.InputParity` | — |
@@ -206,7 +206,7 @@ python3 lib/vncrfb.py --host <DUT_IP> watch 10                  # 帧率/带宽
 | OOBE 设置屏（门控、启用、禁用） | `vnc.OOBESetup` | — |
 | 并发查看器 | `x02` | — |
 | 客户端兼容性 | `x04`（TigerVNC：VeNCrypt X509 + 真实桌面）；协议层：`vnc.AuthMatrix` | — |
-| CPU 指标 | `vnc.Performance` | — |
+| CPU 指标（空闲 1%、串流 15%） | `x04`（真实 Tight 查看器） | — |
 | 输入（点击到像素）延迟 | `vnc.Performance`（上报，80 ms 指标） | — |
 | 主机侧延迟/吞吐 | `x03` | — |
 | 认证滥用防护 | `vnc.AuthAbuse` | — |

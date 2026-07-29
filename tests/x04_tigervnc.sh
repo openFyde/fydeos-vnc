@@ -51,6 +51,27 @@ elif [[ "$RFB_DIRECT" == "1" && -n "$cert_cn" && "$cert_cn" != "$RFB_HOST" ]]; t
   info "note: connecting by address ($RFB_HOST) while the certificate names '$cert_cn' — a real viewer warns about the hostname here"
 fi
 target="$host:$RFB_PORT"
+
+# --- Idle CPU (no viewer attached) -----------------------------------------
+# All daemon CPU accounting lives in this script (the on-device Tast suite
+# only measures click latency): idle here, Tight-path streaming below.
+idle_ticks="$(dssh 'pid=$(pgrep -o -x fydeos-vncd); r1=$(awk "{print \$14+\$15}" /proc/$pid/stat); sleep 3; r2=$(awk "{print \$14+\$15}" /proc/$pid/stat); echo $((r2-r1))' 2>/dev/null | tr -dc 0-9)"
+if [[ -n "$idle_ticks" ]]; then
+  # CLK_TCK=100, 3s window: % = ticks/3 (integer; sub-1% reads as 0).
+  idle_cpu=$(( idle_ticks / 3 ))
+  info "idle CPU (no viewer): ~${idle_cpu}% of one core"
+  if (( idle_cpu > 15 )); then
+    fail "idle CPU ${idle_cpu}% is unreasonably high"
+  elif (( idle_cpu > 1 )); then
+    warn "idle CPU ${idle_cpu}% exceeds the 1% design target"
+  else
+    pass "daemon idle CPU within the 1% design target"
+  fi
+else
+  warn "could not sample idle CPU over SSH"
+fi
+# ---------------------------------------------------------------------------
+
 info "connecting TigerVNC to $target"
 
 # Run TigerVNC headless for a few seconds and keep its protocol log. It exits

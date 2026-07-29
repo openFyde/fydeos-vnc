@@ -118,7 +118,7 @@ Chrome-based test) and the two host-driven tests reboot / suspend the device.
 | `vnc.NoVNCWeb` | noVNC page served over HTTPS with the daemon certificate; websockify backend; the plain-HTTP-policy and WebSocket-upgrade checks are informational (logged, not enforced) |
 | `vnc.SessionTransition` | KMS (pre-login) → FrameSink (login) → KMS (logout) with the daemon never dropping and frames served throughout |
 | `vnc.MultiDisplay` | Display inventory; switching the captured display changes the framebuffer to that display's geometry and back; the frame shows that display's content and an injected click lands on it; unknown-id error path (switching checks skip with one display) |
-| `vnc.Performance` | Daemon CPU while idle and while a viewer streams, plus click-to-pixel latency, reported to the perf pipeline with area-scaled regression ceilings (the Raw-only client is not comparable to a Tight viewer — the Tight-side CPU number comes from `x04`) |
+| `vnc.Performance` | Click-to-pixel input latency over the wire, reported to the perf pipeline against the 80 ms design target (daemon CPU is measured by `x04`, where a real Tight viewer exists) |
 | `vnc.InputParity` | Right-click opens a context menu, middle-click opens a new tab, the wheel scrolls, a drag selects text, and a caption drag moves the window — all injected over RFB |
 | `vnc.Clipboard` | A viewer's RFB cut-text is pasted into the focused field; a device-side copy is pushed to viewers — legacy Latin-1 ServerCutText and Extended Clipboard (notify→request→provide, UTF-8 intact, sync on connect, ~1 MB payload) |
 | `vnc.AuthAbuse` | Repeated wrong passwords are refused and the daemon stays healthy (no per-IP backoff is implemented) |
@@ -150,7 +150,7 @@ combined report under `tests/artifacts/`.
 | `x01_discovery.sh` | mDNS `_rfb._tcp` "FydeOS VNC" record is visible to other hosts on the LAN; RFB/noVNC ports reachable from another machine |
 | `x02_multiclient.sh` | Several viewers connect at once — each completes a handshake and frame grab — and the daemon stays healthy afterwards |
 | `x03_performance.sh` | Host-side full-frame round-trip (connect+TLS+auth+first frame) and the update throughput/fps a viewer observes over the wire |
-| `x04_tigervnc.sh` | An independent client (TigerVNC, headless under Xvfb) completes the VeNCrypt/X509 handshake, opens the real desktop, and leaves the daemon healthy; also samples the daemon's Tight-path streaming CPU under pointer-driven damage (the Tast client is Raw-only) |
+| `x04_tigervnc.sh` | An independent client (TigerVNC, headless under Xvfb) completes the VeNCrypt/X509 handshake, opens the real desktop, and leaves the daemon healthy; measures ALL daemon CPU figures — idle (1% target) and Tight-path streaming under pointer-driven damage (15% target) |
 
 `x01`'s discovery and reachability checks need a real LAN path; behind NAT they
 warn. `x02`/`x03` tunnel the VNC ports automatically when the device is not
@@ -202,7 +202,7 @@ Wi-Fi/Ethernet switch.
 | mDNS discovery | `vnc.NetworkBinding` (present + withdrawn); `x01` (external propagation) | — |
 | Pre-login (KMS) capture | `vnc.CaptureKMS`, `vnc.SessionTransition`, `vnc.LoginScreenInput` | — |
 | In-session (compositor) capture | `vnc.CaptureChrome` | — |
-| Damage/update stream, fps | `vnc.CaptureChrome`, `vnc.Performance`; `x03` | — |
+| Damage/update stream, fps | `vnc.CaptureChrome`; `x03` | — |
 | Framebuffer geometry/padding/resize | `vnc.CaptureKMS`, `vnc.MultiDisplay` | — |
 | Pre-login / lock-screen input | `vnc.LockScreen`, `vnc.LoginScreenInput` | — |
 | In-session input (buttons, wheel, drag, keys) | `vnc.InputInjection`, `vnc.InputParity` | — |
@@ -217,7 +217,7 @@ Wi-Fi/Ethernet switch.
 | OOBE setup screen (gating, Enable, Disable) | `vnc.OOBESetup` | — |
 | Concurrent viewers | `x02` | — |
 | Client compatibility | `x04` (TigerVNC: VeNCrypt X509 + real desktop); protocol level: `vnc.AuthMatrix` | — |
-| CPU targets | `vnc.Performance` | — |
+| CPU targets (idle 1%, streaming 15%) | `x04` (real Tight viewer) | — |
 | Input (click-to-pixel) latency | `vnc.Performance` (reported, 80 ms target) | — |
 | Host-side latency/throughput | `x03` | — |
 | Auth abuse resilience | `vnc.AuthAbuse` | — |
